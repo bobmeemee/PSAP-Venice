@@ -6,23 +6,12 @@ from matplotlib import pyplot as plt
 
 INSTANCE = 11
 TIME_INTERVAL = 5
-TIME_WINDOW = 60*6
+TIME_WINDOW = 60 * 6
 
-
-T0 = 50
-ALPHA = 0.97
-NEIGHBORHOOD_SIZE = 5  # number of neighbours to consider at each iteration
+T0 = 100
+ALPHA = 0.98
+NEIGHBORHOOD_SIZE = 10  # number of neighbours to consider at each iteration
 EPOCHS = 500  # number of iterations
-k = 0.1  # helps reduce the step-size, for example, if your random number
-# was 0.90 and your x value was 1, to make your step size in
-# the search space smaller, instead of making your new x value
-# 1.90 (1 + 0.90), you can multiply the random number (0.90)
-# with a small number to ensure you will take a smaller step...
-# so, if k = 0.10, then 0.90 * 0.10 = 0.09, which will make
-# your new x value 1.09 (1 + 0.09).. this helps you search the
-# search space more efficiently by being more thorough instead
-# of jumping around and taking a large step that may lead you
-# to pass the opital or near-optimal solution
 
 
 class Movement:
@@ -99,6 +88,10 @@ def generate_neighbor_solution(initial_solution, affected_movements, deviation_s
             movement = rd.choice(list(initial_solution.keys()))
         # choose a random time interval
         time_deviation = round(rd.gauss(0, deviation_scale) / TIME_INTERVAL) * TIME_INTERVAL
+
+        # choose a random time interval, non-gaussian
+        # time_deviation = rd.choice([-1, 1]) * rd.choice([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50])
+
         # apply the time deviation
         initial_solution[movement] += time_deviation / 60
         chosen_neighbors.append(movement)
@@ -111,9 +104,12 @@ def obj_func(solution):
     for key, value in solution.items():
         # penalty for deviation from optimal time
         if key.vessel_type == 'Cargo ship':
-            cost += 5 * abs(key.optimal_time - value)
+            cost += 5 * abs(key.optimal_time - value) * 3.5
         else:
-            cost += 10 * abs(key.optimal_time - value)
+            cost += 10 * abs(key.optimal_time - value) * 3.5
+
+        # if abs(key.optimal_time - value) > TIME_WINDOW / 60 / 2:
+        #     cost += 100 * abs(key.optimal_time - value)
 
         # penalty for headway violations
         # TODO: tweak the penalty values
@@ -123,12 +119,12 @@ def obj_func(solution):
                     # m and m' are the same vessel, m can't be scheduled before m'
                     delta_t = value2 - value
                     if delta_t < 0:
-                        cost += 0 * abs(delta_t)
+                        cost += 1 * abs(delta_t)
                 elif key.headway.get(key2.id_number)[0] == 1:
                     # headway has to be applied
                     delta_t = value2 - value
                     if delta_t < key.headway.get(key2.id_number)[1]:
-                        cost += abs(delta_t) * .93
+                        cost += abs(delta_t) * 1
                 else:
                     # no headway has to be applied
                     cost += 0
@@ -136,29 +132,33 @@ def obj_func(solution):
 
 
 def validate_solution(solution, time_window):
+    errors = ''
     for key, value in solution.items():
         if abs(key.optimal_time - value) > time_window / 60 / 2:
-            print('Movement', key.id_number, 'is scheduled outside its time window', ' delta_t =',
-                  abs(value - key.optimal_time) * 60)
-            return False
+            errors += ('Movement ' + str(key.id_number) + ' is scheduled outside its time window' + ' delta_t = ' +
+                       str(abs(value - key.optimal_time) * 60) + '\n')
+
         for key2, value2 in solution.items():
             if key != key2:
                 if key.headway.get(key2.id_number)[0] == 0:
                     # m and m' are the same vessel, m can't be scheduled before m'
                     delta_t = value2 - value
                     if delta_t < 0.:
-                        print('Movement', key.id_number, 'is scheduled before movement', key2.id_number,
-                              ' (same vessel)', ' delta_t =', delta_t)
-                        return False
+                        errors += ('Movement ' + str(key.id_number) + ' is scheduled before movement ' +
+                                   str(key2.id_number) + ' (same vessel)' + ' delta_t = ' + str(delta_t) + '\n')
+
                 elif key.headway.get(key2.id_number)[0] == 1:
                     # headway has to be applied
                     delta_t = value2 - value
                     if delta_t < key.headway.get(key2.id_number)[1]:
-                        print('Movement', key.id_number, 'is scheduled too close to movement', key2.id_number,
-                              ' (headway)', ' delta_t =', delta_t*60,
-                              ' required headway =', key.headway.get(key2.id_number)[1]*60)
-                        return False
-    return True
+                        errors += ('Movement ' + str(key.id_number) + ' is scheduled too close to movement ' +
+                                   str(key2.id_number) + ' (headway)' + ' delta_t = ' + str(delta_t * 60) +
+                                   ' required headway = ' + str(key.headway.get(key2.id_number)[1] * 60) + '\n')
+    if errors.__len__() > 0:
+        print(errors)
+        return False
+    else:
+        return True
 
 
 # SIMULATED ANNEALING
@@ -175,7 +175,7 @@ obj_val = []
 for idx in range(EPOCHS):
     for jdx in range(NEIGHBORHOOD_SIZE):
         new_solution = initial_solution.copy()
-        new_solution = generate_neighbor_solution(new_solution, affected_movements=5, deviation_scale=20)
+        new_solution = generate_neighbor_solution(new_solution, affected_movements=3, deviation_scale=10)
 
         # calculate the objective function of the new solution
         new_obj_val = obj_func(new_solution)
@@ -190,14 +190,20 @@ for idx in range(EPOCHS):
             if p < np.exp(-(new_obj_val - initial_obj_val) / T0):
                 initial_solution = new_solution.copy()
                 initial_obj_val = new_obj_val
-    print('old', initial_obj_val, ' new', new_obj_val)
+    #print('old', initial_obj_val, ' new', new_obj_val)
 
     temp.append(T0)
     obj_val.append(initial_obj_val)
     T0 = ALPHA * T0
 
 print('Final solution is valid:', validate_solution(initial_solution, TIME_WINDOW))
+# print the last 50 objective function values vertically
+for i in range(50):
+    print(obj_val[-50+i])
 print('Final objective function value:', initial_obj_val)
+# print scheduled times
+for key, value in initial_solution.items():
+    print(key.id_number, 'scheduled at', decimal_to_time(value))
 
 plt.plot(temp, obj_val)
 plt.xlabel('Temperature')
