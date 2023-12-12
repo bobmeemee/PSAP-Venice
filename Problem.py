@@ -6,7 +6,7 @@ class Movement:
     def __init__(self, id_number, vessel_type, optimal_time):
         self.id_number = id_number
         self.optimal_time = time_to_decimal(optimal_time)
-        # self.scheduled_time = self.optimal_time
+        self.scheduled_time = self.optimal_time
         self.vessel_type = vessel_type
         self.headway = dict()
 
@@ -43,8 +43,8 @@ def read_data(instance):
     return df_movimenti, df_precedenze
 
 
-# create a dictionary with the initial solution
-def generate_initial_solution(df, df_headway, deviation_scale, time_interval=5):
+# create a dictionary with the initial solution {movement: scheduled_time}
+def generate_initial_solution(df, df_headway, deviation_scale=1, time_interval=5):
     init_sol = dict()
     j = 0
     for i in range(len(df)):
@@ -60,7 +60,8 @@ def generate_initial_solution(df, df_headway, deviation_scale, time_interval=5):
             precedence_allowed = df_headway.iloc[j, 1]
             other_mov = df_headway.iloc[j, 2]
             headway_time = df_headway.iloc[j, 3] / 60  # convert to decimal
-            m.add_headway(other_mov, [precedence_allowed, headway_time])
+            if not (precedence_allowed == 1 and headway_time < 0):
+                m.add_headway(other_mov, [precedence_allowed, headway_time])
             if j == len(df_headway) - 1:
                 break
             j += 1
@@ -69,8 +70,12 @@ def generate_initial_solution(df, df_headway, deviation_scale, time_interval=5):
     return init_sol
 
 
+# generate a neighboring solution by applying a random time deviation to a random set of movements
 def generate_neighbor_solution(initial_solution, affected_movements, deviation_scale, time_interval=5):
     chosen_neighbors = []
+    if affected_movements > len(initial_solution):
+        affected_movements = len(initial_solution)
+
     for _ in range(affected_movements):
         # choose a random movement
         movement = rd.choice(list(initial_solution.keys()))
@@ -89,14 +94,14 @@ def generate_neighbor_solution(initial_solution, affected_movements, deviation_s
     return initial_solution
 
 
-def obj_func(solution):
+def obj_func(solution, precedence=None):
     cost = 0
     for key, value in solution.items():
         # penalty for deviation from optimal time
         if key.vessel_type == 'Cargo ship':
-            cost += 5 * abs(key.optimal_time - value) * 3.5
+            cost += 1 * abs(key.optimal_time - value) * 3.5
         else:
-            cost += 10 * abs(key.optimal_time - value) * 3.5
+            cost += 1 * abs(key.optimal_time - value) * 3.5
 
         # if abs(key.optimal_time - value) > TIME_WINDOW / 60 / 2:
         #     cost += 100 * abs(key.optimal_time - value)
@@ -113,15 +118,38 @@ def obj_func(solution):
                 elif key.headway.get(key2.id_number)[0] == 1:
                     # headway has to be applied
                     delta_t = value2 - value
-                    if delta_t < key.headway.get(key2.id_number)[1]:
-                        cost += abs(delta_t) * 1
+                    if delta_t < key.headway.get(key2.id_number)[1] and delta_t > 0.:
+                        cost += abs(delta_t) * 5
                 else:
                     # no headway has to be applied
                     cost += 0
+
+        # check if the precedence constraints are satisfied
+        if precedence is not None:
+            precedences = precedence.get(key)
+            if precedences is None:
+                continue
+            for other_movement, headway in precedences.items():
+                if key == other_movement:
+                    print('ERROR: Movement is in its own precedence constraints')
+                    return False
+
+                time_difference = solution[other_movement] - value
+                if headway >= 0:
+                    if time_difference < headway:
+                        # print('ERROR: Precedence constraint violated')
+                        cost += 10 * abs(time_difference - headway)
+                else:
+                    print('ERROR: Negative headway', headway)
+                    return False
+
     return cost
 
 
 def validate_solution(solution, time_window, print_errors=False):
+    if solution is None:
+        print('ERROR: No solution found' if print_errors else '')
+        return False
     errors = ''
     for key, value in solution.items():
         if abs(key.optimal_time - value) > time_window / 60 / 2:
@@ -139,8 +167,9 @@ def validate_solution(solution, time_window, print_errors=False):
 
                 elif key.headway.get(key2.id_number)[0] == 1:
                     # headway has to be applied
+                    # only check the headway if the next movement is after the first movement
                     delta_t = value2 - value
-                    if delta_t < key.headway.get(key2.id_number)[1]:
+                    if delta_t < key.headway.get(key2.id_number)[1] and delta_t > 0.:
                         errors += ('Movement ' + str(key.id_number) + ' is scheduled too close to movement ' +
                                    str(key2.id_number) + ' (headway)' + ' delta_t = ' + str(delta_t * 60) +
                                    ' required headway = ' + str(key.headway.get(key2.id_number)[1] * 60) + '\n')
@@ -152,3 +181,35 @@ def validate_solution(solution, time_window, print_errors=False):
         return False
     else:
         return True
+
+def validate_precedence_constraints(solution: dict, precedence: dict):
+    if precedence is None:
+        return True
+    # check if the precedence constraints are satisfied
+    for movement, time in solution.items():
+        precedences = precedence[movement]
+        for other_movement, headway in precedences.items():
+            if movement == other_movement:
+                print('ERROR: Movement is in its own precedence constraints')
+                return False
+
+            time_difference = solution[other_movement] - time
+            if headway >= 0:
+                if time_difference < headway:
+                    # print('ERROR: Precedence constraint violated')
+                    return False
+            else:
+                print('ERROR: Negative headway')
+                return False
+
+    return True
+
+
+def earliest(solution: dict, movements: list):
+    earliest_movement = None
+    earliest_time = 1000000
+    for m in movements:
+        if solution.get(m) < earliest_time:
+            earliest_time = solution.get(m)
+            earliest_movement = m
+    return earliest_movement, earliest_time
