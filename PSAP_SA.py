@@ -99,7 +99,7 @@ def generate_neighbor_solution(initial_solution, affected_movements, deviation_s
     return initial_solution
 
 
-def obj_func(solution):
+def obj_func(solution, precedences=None):
     cost = 0
     for key, value in solution.items():
         # penalty for deviation from optimal time
@@ -128,6 +128,7 @@ def obj_func(solution):
                 else:
                     # no headway has to be applied
                     cost += 0
+
     return cost
 
 
@@ -166,7 +167,7 @@ def validate_solution(solution, time_window, print_errors=False):
 
 # SIMULATED ANNEALING
 def SA_solve(epochs, neighborhood_size, df_movimenti, df_precedenze, t0, alpha, time_window, time_interval=5,
-             print_errors=False, initial_deviation_scale=10, neighbor_deviation_scale=10, affected_movements=3):
+             print_errors=False, initial_deviation_scale=1, neighbor_deviation_scale=40, affected_movements=3):
     # generate initial solution
     initial_solution = generate_initial_solution(df_movimenti, df_precedenze, initial_deviation_scale, time_interval)
     initial_obj_val = obj_func(initial_solution)
@@ -194,7 +195,6 @@ def SA_solve(epochs, neighborhood_size, df_movimenti, df_precedenze, t0, alpha, 
                 if p < np.exp(-(new_obj_val - initial_obj_val) / t0):
                     initial_solution = new_solution.copy()
                     initial_obj_val = new_obj_val
-        # print('old', initial_obj_val, ' new', new_obj_val)
 
         temp.append(t0)
         obj_val.append(initial_obj_val)
