@@ -119,14 +119,14 @@ def obj_func(solution, precedence=None):
                     # headway has to be applied
                     delta_t = value2 - value
                     if delta_t < key.headway.get(key2.id_number)[1] and delta_t > 0.:
-                        cost += abs(delta_t) * 5
+                        cost += abs(delta_t) * 7
                 else:
                     # no headway has to be applied
                     cost += 0
 
         # check if the precedence constraints are satisfied
         if precedence is not None:
-            precedences = precedence.get(key)
+            precedences = precedence.get(key)  # {m': headway}
             if precedences is None:
                 continue
             for other_movement, headway in precedences.items():
@@ -134,14 +134,15 @@ def obj_func(solution, precedence=None):
                     print('ERROR: Movement is in its own precedence constraints')
                     return False
 
+                # precedence can be negative
                 time_difference = solution[other_movement] - value
                 if headway >= 0:
                     if time_difference < headway:
-                        # print('ERROR: Precedence constraint violated')
-                        cost += 10 * abs(time_difference - headway)
+                        cost += 5 * abs(time_difference - headway)
+
                 else:
-                    print('ERROR: Negative headway', headway)
-                    return False
+                    if time_difference > headway:
+                        cost += 5 * abs(time_difference - headway)
 
     return cost
 
@@ -182,6 +183,7 @@ def validate_solution(solution, time_window, print_errors=False):
     else:
         return True
 
+
 def validate_precedence_constraints(solution: dict, precedence: dict):
     if precedence is None:
         return True
@@ -193,14 +195,15 @@ def validate_precedence_constraints(solution: dict, precedence: dict):
                 print('ERROR: Movement is in its own precedence constraints')
                 return False
 
+            # precedence can be negative
             time_difference = solution[other_movement] - time
             if headway >= 0:
                 if time_difference < headway:
-                    # print('ERROR: Precedence constraint violated')
                     return False
+
             else:
-                print('ERROR: Negative headway')
-                return False
+                if time_difference > headway:
+                    return False
 
     return True
 

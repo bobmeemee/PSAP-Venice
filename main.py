@@ -6,14 +6,14 @@ import numpy as np
 from Problem import Movement, time_to_decimal, decimal_to_time, validate_solution, generate_initial_solution, \
     read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest
 
-INSTANCE = 11
+INSTANCE = 35
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6
 
 T0 = 1000
 ALPHA = 0.95
 NEIGHBORHOOD_SIZE = 5  # number of neighbours to consider at each iteration
-EPOCHS = 200  # number of iterations
+EPOCHS = 500  # number of iterations
 
 
 # ============SIMULATED ANNEALING================
@@ -51,18 +51,15 @@ def solve_with_precedence_constraints(movements: list, precedence: dict, max_tim
                 if p < np.exp(-(new_obj_val - initial_obj_val) / t0):
                     initial_solution = new_solution.copy()
                     initial_obj_val = new_obj_val
-            print("epoch: " + str(e) + " obj_val: " + str(initial_obj_val) + " time: " + str(time.time() - start_time))
 
         # update the temperature
         t0 = alpha * t0
         e += 1
-        print("solution: " + str(initial_solution) + " obj_val: " + str(initial_obj_val) + " time: " + str(
-            time.time() - start_time))
+        print("Epoch: ", e, "Time: ", time.time() - start_time, "Objective value: ", initial_obj_val)
 
     if validate_solution(initial_solution, vessel_time_window, print_errors=True):
         return initial_solution, initial_obj_val
     else:
-        print("epoch: " + str(e))
         return None, None
 
 
@@ -87,7 +84,7 @@ def solution_generating_procedure(movements: list, l, t):
         # if no solution was found, return None
         if solution is None:
             print("No solution found while using precedence constraints")
-            print(len(fixed_movements))
+            print("reached: ", len(fixed_movements))
             return None, None
         else:
             # get the earliest movement in the solution that is not in the fixed movements
@@ -123,7 +120,7 @@ if __name__ == '__main__':
 
     movements = list(initial_solution.keys())
 
-    initial_solution, obj_val = solution_generating_procedure(movements, 2, 10)
+    initial_solution, obj_val = solution_generating_procedure(movements, 3, 10)
 
     print(validate_solution(initial_solution, TIME_WINDOW, print_errors=True))
 
