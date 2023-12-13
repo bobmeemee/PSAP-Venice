@@ -6,14 +6,14 @@ import numpy as np
 from Problem import Movement, time_to_decimal, decimal_to_time, validate_solution, generate_initial_solution, \
     read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest
 
-INSTANCE = 35
+INSTANCE = 19
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6
 
 T0 = 1000
 ALPHA = 0.95
 NEIGHBORHOOD_SIZE = 5  # number of neighbours to consider at each iteration
-EPOCHS = 500  # number of iterations
+EPOCHS = 300  # number of iterations
 
 
 # ============SIMULATED ANNEALING================
@@ -30,9 +30,19 @@ def solve_with_precedence_constraints(movements: list, precedence: dict, max_tim
     initial_solution = {m: m.optimal_time for m in movements}
     initial_obj_val = obj_func(initial_solution)
     e = 0
+    attempt = 0
+    stopping_condition_counter = 0
+
 
     # while the time limit is not reached
-    while time.time() - start_time < max_time and e < epochs:
+    while time.time() - start_time < max_time and not validate_solution(initial_solution, vessel_time_window):
+        if e >= epochs:
+            initial_solution = {m: m.optimal_time for m in movements}
+            initial_obj_val = obj_func(initial_solution)
+            e = 0
+            attempt += 1
+
+
         for i in range(neighborhood_size):
             new_solution = initial_solution.copy()
             new_solution = generate_neighbor_solution(new_solution, affected_movements=affected_movements,
@@ -52,10 +62,19 @@ def solve_with_precedence_constraints(movements: list, precedence: dict, max_tim
                     initial_solution = new_solution.copy()
                     initial_obj_val = new_obj_val
 
+            if abs(new_obj_val - initial_obj_val) < 0.000001:
+                stopping_condition_counter += 1
+                if stopping_condition_counter == 10 * neighborhood_size:
+                    initial_solution = {m: m.optimal_time for m in movements}
+                    initial_obj_val = obj_func(initial_solution)
+                    e = 0
+                    attempt += 1
+
+
         # update the temperature
         t0 = alpha * t0
         e += 1
-        print("Epoch: ", e, "Time: ", time.time() - start_time, "Objective value: ", initial_obj_val)
+        # print("Attempt: ", attempt, "Epoch: ", e, "Time: ", time.time() - start_time, "Objective value: ", initial_obj_val)
 
     if validate_solution(initial_solution, vessel_time_window, print_errors=True):
         return initial_solution, initial_obj_val
@@ -84,7 +103,7 @@ def solution_generating_procedure(movements: list, l, t):
         # if no solution was found, return None
         if solution is None:
             print("No solution found while using precedence constraints")
-            print("reached: ", len(fixed_movements))
+            print("reached: ", len(fixed_movements), "out of: ", len(movements))
             return None, None
         else:
             # get the earliest movement in the solution that is not in the fixed movements
@@ -111,18 +130,22 @@ def solution_generating_procedure(movements: list, l, t):
 
 
 if __name__ == '__main__':
-    t = time.time()
-    # read in the data
-    df_movimenti, df_precedenze = read_data(INSTANCE)
-    # generate the initial solution
-    initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
-                                                 time_interval=TIME_INTERVAL)
+    sol_found = False
+    instance = 1
+    while not sol_found and instance < 101:
+        print("Instance: ", instance)
+        # read in the data
+        df_movimenti, df_precedenze = read_data(instance)
+        # generate the initial solution
+        initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
+                                                     time_interval=TIME_INTERVAL)
 
-    movements = list(initial_solution.keys())
+        movements = list(initial_solution.keys())
 
-    initial_solution, obj_val = solution_generating_procedure(movements, 3, 10)
+        initial_solution, obj_val = solution_generating_procedure(movements, 3, 5)
 
-    print(validate_solution(initial_solution, TIME_WINDOW, print_errors=True))
+        sol_found = validate_solution(initial_solution, TIME_WINDOW, print_errors=False)
+        instance += 1
 
 """
     df_movimenti = pd.read_excel(str('data/Instance_' + str(INSTANCE) + '.xlsx'), header=0, sheet_name='movimenti')
