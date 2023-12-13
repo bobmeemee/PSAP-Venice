@@ -62,6 +62,8 @@ def generate_initial_solution(df, df_headway, deviation_scale=1, time_interval=5
             headway_time = df_headway.iloc[j, 3] / 60  # convert to decimal
             if not (precedence_allowed == 1 and headway_time < 0):
                 m.add_headway(other_mov, [precedence_allowed, headway_time])
+            else:
+                m.add_headway(other_mov, [2, 0])
             if j == len(df_headway) - 1:
                 break
             j += 1
