@@ -86,8 +86,10 @@ def solution_generating_procedure(movements: list, l, t):
     # movements is a list of movements
     # sort the movements by time
     sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
+
     # select the first l movements
     movements_subset = sorted_movements[:l]
+
     fixed_movements = []
     precedence = {}
     while len(fixed_movements) != len(movements):
@@ -103,7 +105,7 @@ def solution_generating_procedure(movements: list, l, t):
         # if no solution was found, return None
         if solution is None:
             print("No solution found while using precedence constraints")
-            print("reached: ", len(fixed_movements), "out of: ", len(movements))
+            print("reached: ", len(fixed_movements), "/", len(movements))
             return None, None
         else:
             # get the earliest movement in the solution that is not in the fixed movements
@@ -132,20 +134,31 @@ def solution_generating_procedure(movements: list, l, t):
 if __name__ == '__main__':
     sol_found = False
     instance = 1
-    while not sol_found and instance < 101:
+    valid_solutions = []
+    while instance < 10:
+        print("=====================================")
         print("Instance: ", instance)
         # read in the data
-        df_movimenti, df_precedenze = read_data(instance)
+        df_movimenti, df_precedenze = read_data(1)
         # generate the initial solution
         initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
                                                      time_interval=TIME_INTERVAL)
 
         movements = list(initial_solution.keys())
+        sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
+        result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
+        print("Objective value initial solution: ", obj_func(initial_solution))
 
-        initial_solution, obj_val = solution_generating_procedure(movements, 3, 5)
+        initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5)
 
-        sol_found = validate_solution(initial_solution, TIME_WINDOW, print_errors=False)
+        if initial_solution is not None:
+            print("Solution found for instance", instance, "(", len(initial_solution), ")")
+            print("Objective value: ", obj_val)
+            valid_solutions.append(initial_solution)
+
         instance += 1
+        print("solutions found: ", len(valid_solutions), "/", instance - 1)
+
 
 """
     df_movimenti = pd.read_excel(str('data/Instance_' + str(INSTANCE) + '.xlsx'), header=0, sheet_name='movimenti')

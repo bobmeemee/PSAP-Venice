@@ -101,9 +101,9 @@ def obj_func(solution, precedence=None):
     for key, value in solution.items():
         # penalty for deviation from optimal time
         if key.vessel_type == 'Cargo ship':
-            cost += 1 * abs(key.optimal_time - value) * 3.5
+            cost += 1 * abs(key.optimal_time - value) * 3
         else:
-            cost += 1 * abs(key.optimal_time - value) * 3.5
+            cost += 1 * abs(key.optimal_time - value) * 3
 
         # if abs(key.optimal_time - value) > TIME_WINDOW / 60 / 2:
         #     cost += 100 * abs(key.optimal_time - value)
@@ -121,7 +121,7 @@ def obj_func(solution, precedence=None):
                     # headway has to be applied
                     delta_t = value2 - value
                     if delta_t < key.headway.get(key2.id_number)[1] and delta_t > 0.:
-                        cost += abs(delta_t) * 7
+                        cost += abs(delta_t) * 2000
                 else:
                     # no headway has to be applied
                     cost += 0
@@ -140,11 +140,11 @@ def obj_func(solution, precedence=None):
                 time_difference = solution[other_movement] - value
                 if headway >= 0:
                     if time_difference < headway:
-                        cost += 5 * abs(time_difference - headway)
+                        cost += 10 * abs(time_difference - headway)
 
                 else:
                     if time_difference > headway:
-                        cost += 5 * abs(time_difference - headway)
+                        cost += 10 * abs(time_difference - headway)
 
     return cost
 
