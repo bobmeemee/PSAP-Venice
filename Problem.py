@@ -6,12 +6,20 @@ class Movement:
     def __init__(self, id_number, vessel_type, optimal_time):
         self.id_number = id_number
         self.optimal_time = time_to_decimal(optimal_time)
-        self.scheduled_time = self.optimal_time
+        self.__private_scheduled_time = self.optimal_time
+        self.__private_delay = 0
         self.vessel_type = vessel_type
         self.headway = dict()
 
     def add_headway(self, id_number, time):
         self.headway[id_number] = time
+
+    def get_delay(self):
+        return self.__private_delay
+
+    def set_scheduled_time(self, time):
+        self.__private_scheduled_time = time
+        self.__private_delay = time - self.optimal_time
 
     # print the movement
     def __str__(self):
@@ -101,9 +109,9 @@ def obj_func(solution, precedence=None):
     for key, value in solution.items():
         # penalty for deviation from optimal time
         if key.vessel_type == 'Cargo ship':
-            cost += 1 * abs(key.optimal_time - value) * 3
+            cost += 1 * abs(key.optimal_time - value) * 5
         else:
-            cost += 1 * abs(key.optimal_time - value) * 3
+            cost += 1 * abs(key.optimal_time - value) * 5
 
         # if abs(key.optimal_time - value) > TIME_WINDOW / 60 / 2:
         #     cost += 100 * abs(key.optimal_time - value)
