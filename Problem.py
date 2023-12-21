@@ -21,6 +21,9 @@ class Movement:
         self.__private_scheduled_time = time
         self.__private_delay = time - self.optimal_time
 
+    def get_scheduled_time(self):
+        return self.__private_scheduled_time
+
     # print the movement
     def __str__(self):
         # print the headway in a readable way

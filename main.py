@@ -153,7 +153,7 @@ if __name__ == '__main__':
 
         if initial_solution is not None:
             print("Solution found for instance", instance, "(", len(initial_solution), ")")
-            print("Objective value: ", obj_val)
+            print("Objective value: ", obj_func(initial_solution))
             valid_solutions.append(initial_solution)
 
         instance += 1

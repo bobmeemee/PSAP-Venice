@@ -2,19 +2,20 @@ import pandas as pd
 import random as rd
 import numpy as np
 import time
-from Problem import Movement, time_to_decimal, decimal_to_time, read_data, obj_func, earliest
+
+from matplotlib import pyplot as plt
+
+from Problem import Movement, time_to_decimal, decimal_to_time, read_data, earliest, validate_solution, \
+    generate_initial_solution
 
 # ============EVOLUTIONARY ALGORITHM================
 
 # ======================================================================================================================
 # PARAMETERS
 # ======================================================================================================================
-INSTANCE = 1
-POPULATION_SIZE = 100
-GENERATIONS = 1000
-MUTATION_PROBABILITY = 0.1
-CROSSOVER_PROBABILITY = 0.9
-TOURNAMENT_SIZE = 2
+# INSTANCE = 1
+TIME_INTERVAL = 5
+TIME_WINDOW = 60 * 6
 
 
 def create_population(movements, population_size, deviation_scale=20, time_interval=5):
@@ -24,7 +25,7 @@ def create_population(movements, population_size, deviation_scale=20, time_inter
         # create a random solution
         for m in movements:
             time_deviation = round(rd.gauss(0, deviation_scale) / time_interval) * time_interval
-            m.set_scheduled_time(time_deviation / 60)
+            m.set_scheduled_time(m.optimal_time + time_deviation / 60)
         random_solution = {m: m.get_scheduled_time() for m in movements}
         population.append(random_solution)
     return population
@@ -61,23 +62,18 @@ def select_parent_pair(population, tournament_size, precedence=None):
     return first_parent, second_parent
 
 
-def select_best_parents(population, precedence, mu):
-    parents = sorted(population, key=lambda x: obj_func(x, precedence))[:mu]
-    return parents
-
-
-def crossover(parent1, parent2, crossover_probability=0.5, n_points=2, number_of_children=2):
+def crossover(parent1, parent2, crossover_probability=0.5, n_points=2):
     if crossover_probability <= np.random.rand():
         return parent1, parent2
 
     if n_points > len(parent1):
         raise ValueError("n_points must be smaller than the length of the parents")
 
-    parent1_keys = list(parent1.keys())
-    parent2_keys = list(parent2.keys())
+    keys = list(parent1.keys())
+
 
     # select the crossover points
-    length = len(parent1_keys)
+    length = len(keys)
     rnd = []
     for i in range(n_points):
         r = np.random.randint(0, length)
@@ -91,30 +87,78 @@ def crossover(parent1, parent2, crossover_probability=0.5, n_points=2, number_of
 
     for i in range(n_points):
         if i % 2 == 0:
-            child1[parent1_keys[rnd[i]]] = parent2[parent2_keys[rnd[i]]]
+            child1[keys[rnd[i]]] = parent2[keys[rnd[i]]]
         else:
-            child2[parent2_keys[rnd[i]]] = parent1[parent1_keys[rnd[i]]]
+            child2[keys[rnd[i]]] = parent1[keys[rnd[i]]]
+
 
     return child1, child2
 
 
 def mutation(genome, mutation_probability=0.1):
-    for i in range(len(genome)):
+    for movement in genome.keys():
         if mutation_probability <= np.random.rand():
-            genome[i] += np.random.randint(-1, 1) * 15 / 60  # mutate by 15 minutes
+            genome[movement] += np.random.randint(-1, 1) * 30 / 60  # mutate by 15 minutes
     return genome
 
 
-# lambda = population size
-# mu = number of parents
-def solve_EA(movements, precedence, max_time, generations, mu, lmbda, mutation_probability, crossover_probability,
-             tournament_size, n_points, deviation_scale, time_interval):
-    try:
-        assert len(movements) >= lmbda
-    except AssertionError:
-        print("Lambda must be smaller than the number of movements")
-        return None, None
+def obj_func(solution, precedence=None):
+    cost = 0
+    for key, value in solution.items():
+        # penalty for deviation from optimal time
+        if key.vessel_type == 'Cargo ship':
+            cost += 1 * abs(key.optimal_time - value) * 5
+        else:
+            cost += 1 * abs(key.optimal_time - value) * 5
 
+        # if abs(key.optimal_time - value) > TIME_WINDOW / 60 / 2:
+        #     cost += 100 * abs(key.optimal_time - value)
+
+        # penalty for headway violations
+        for key2, value2 in solution.items():
+            if key != key2:
+                if key.headway.get(key2.id_number)[0] == 0:
+                    # m and m' are the same vessel, m can't be scheduled before m'
+                    delta_t = value2 - value
+                    if delta_t < 0:
+                        cost += 1 * abs(delta_t)
+                elif key.headway.get(key2.id_number)[0] == 1:
+                    # headway has to be applied
+                    delta_t = value2 - value
+                    if delta_t < key.headway.get(key2.id_number)[1] and delta_t > 0.:
+                        cost += abs(delta_t) * 200
+                else:
+                    # no headway has to be applied
+                    cost += 0
+
+        # check if the precedence constraints are satisfied
+        if precedence is not None:
+            precedences = precedence.get(key)  # {m': headway}
+            if precedences is None:
+                continue
+            for other_movement, headway in precedences.items():
+                if key == other_movement:
+                    print('ERROR: Movement is in its own precedence constraints')
+                    return False
+
+                # precedence can be negative
+                time_difference = solution[other_movement] - value
+                if headway >= 0:
+                    if time_difference < headway:
+                        cost += 10 * abs(time_difference - headway)
+
+                else:
+                    if time_difference > headway:
+                        cost += 10 * abs(time_difference - headway)
+
+    return cost
+
+
+# lambda = number of children
+# mu = number of parents
+# mu + lambda = population size
+def solve_EA(movements, precedence, max_time, generations, mu, lmbda, mutation_probability, crossover_probability,
+             n_points, deviation_scale, time_interval, vessel_time_window):
     try:
         assert lmbda % mu == 0
     except AssertionError:
@@ -123,13 +167,24 @@ def solve_EA(movements, precedence, max_time, generations, mu, lmbda, mutation_p
 
     start_time = time.time()
     # create the initial population
+
     population = create_population(movements, lmbda, deviation_scale, time_interval)
-    initial_best_obj_val = min([obj_func(solution) for solution in population])
+    initial_best_obj_val = min([obj_func(solution, precedence) for solution in population])
+    print("Initial best obj val: ", initial_best_obj_val)
+    parents = sorted(population, key=lambda x: obj_func(x, precedence))
+
+    current_best_solution = parents[0]
+    if validate_solution(current_best_solution, vessel_time_window, print_errors=False):
+        print("Initial solution is valid")
+        return current_best_solution, initial_best_obj_val
+
     generation = 0
+    obj_values = []
+    other_values = []
+    child_one_obj_values = []
     while time.time() - start_time < max_time and generation < generations:
-        # select the parents
-        parents = sorted(population, key=lambda x: obj_func(x, precedence))[:mu]
-        for idx in range(lmbda // mu):
+
+        for idx in range(lmbda // (mu * 2)):
             # crossover the parents
             child1, child2 = crossover(parents[idx], parents[idx + 1], crossover_probability, n_points)
 
@@ -138,27 +193,47 @@ def solve_EA(movements, precedence, max_time, generations, mu, lmbda, mutation_p
             child2 = mutation(child2, mutation_probability)
 
             # add the children to the population
-            population.append(child1)
-            population.append(child2)
+            parents.append(child1)
+            parents.append(child2)
+            child_one_obj_values.append(obj_func(child1, precedence))
 
-        # remove the worst solutions from the population
-        population = sorted(population, key=lambda x: obj_func(x, precedence))
-        population = population[:lmbda]
+        # check if the child is better than the best solution
+        # if so, print
+            if obj_func(child1, precedence) < initial_best_obj_val:
+                print("child1 is better than best solution")
 
+        # remove the worst solutions from the population and keep the best mu + lambda solutions
+        parents = sorted(parents, key=lambda x: obj_func(x, precedence))[:mu + lmbda]
         # update the best objective value
-        best_obj_val = obj_func(population[0], precedence)
+        best_obj_val = obj_func(parents[0], precedence)
         if best_obj_val < initial_best_obj_val:
             initial_best_obj_val = best_obj_val
+            current_best_solution = parents[0]
 
         generation += 1
+        obj_values.append(best_obj_val)
 
-        # TODO: time check, if time is up, return the best solution found so far
-        # TODO: check if the best solution is valid, if not, return None, None
-        # TODO: check if this is correct according to the book
-    return population[0], initial_best_obj_val
+    # plot the objective values log scale
+
+    x_ax = np.linspace(0, len(child_one_obj_values), len(obj_values))
+    plt.plot(x_ax, obj_values, color='blue')
+    plt.plot(child_one_obj_values, color='red')
+
+    plt.show()
 
 
-def solution_generating_procedure(movements: list, l, t, solver=None):
+
+    if validate_solution(current_best_solution, vessel_time_window, print_errors=True):
+        return current_best_solution, initial_best_obj_val
+    else:
+        print("Final solution is not valid")
+        print("obj_val: ", initial_best_obj_val)
+        return None, None
+
+
+def solution_generating_procedure(movements: list, l, t, generations=1000, mu=10, lmbda=100,
+                                  mutation_probability=0.1, crossover_probability=0.9, n_points=2,
+                                  deviation_scale=20, time_interval=5, vessel_time_window=360):
     # movements is a list of movements
     # sort the movements by time
     sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
@@ -172,7 +247,11 @@ def solution_generating_procedure(movements: list, l, t, solver=None):
         # unite the new subset with the fixed movements
         problem_subset = fixed_movements + movements_subset
         # solve the problem with the new subset and the precedence constraints
-        solution, obj_val = solver
+        solution, obj_val = solve_EA(problem_subset, precedence=precedence, max_time=t, generations=generations, mu=mu,
+                                     lmbda=lmbda, mutation_probability=mutation_probability,
+                                     crossover_probability=crossover_probability, n_points=n_points,
+                                     deviation_scale=deviation_scale, time_interval=time_interval,
+                                     vessel_time_window=vessel_time_window)
 
         # if no solution was found, return None
         if solution is None:
@@ -203,10 +282,73 @@ def solution_generating_procedure(movements: list, l, t, solver=None):
         return None, None
 
 
+def generate_parameters():
+    pass
+
+
 if __name__ == '__main__':
-    # read in the data
-    df_movimenti, df_precedenze = read_data(INSTANCE)
+    sol_found = False
+    instance = 1
+    valid_solutions = []
+    objective_values = []
 
-    initial_solution = create_population(df_movimenti, df_precedenze, population_size=2, deviation_scale=20)
+    df = pd.DataFrame(columns=['instance', 'number of movements', 'median delay', 'average delay', 'epochs', 'obj_val',
+                               'neighborhood_size', 't0', 'alpha', 'neighbor_deviation_scale', 'affected_movements',
+                               'time_interval', 'vessel_time_window'])
 
-    print(time_to_decimal("00:15:00"))
+    time_window = 60 * 6
+    time_interval = 5
+    while instance < 2:
+        print("=====================================")
+        print("Instance: ", instance)
+        # read in the data
+        df_movimenti, df_precedenze = read_data(1)
+        # generate the initial solution
+        initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
+                                                     time_interval=TIME_INTERVAL)
+        movements = list(initial_solution.keys())
+        sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
+        result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
+
+
+        print("Objective value initial solution: ", obj_func(initial_solution))
+        generations = 200
+        mu = 2  # number of parents
+        lmbda = 3000  # number of children
+        mutation_probability = 0.0
+        crossover_probability = 1
+        n_points = 4
+        deviation_scale = 60
+        time_interval = 5
+        vessel_time_window = 360
+
+        # run the solution generating procedure 10 times for each instance and save the results
+        for _ in range(1):
+            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5,
+                                                                      generations=generations,
+                                                                      mu=mu, lmbda=lmbda,
+                                                                      mutation_probability=mutation_probability,
+                                                                      crossover_probability=crossover_probability,
+                                                                      n_points=n_points,
+                                                                      deviation_scale=deviation_scale,
+                                                                      time_interval=time_interval,
+                                                                      vessel_time_window=vessel_time_window)
+
+            if initial_solution is not None:
+                # set the movement scheduled to the result of the solution generating procedure
+                for m, t in initial_solution.items():
+                    m.set_scheduled_time(t)
+                print("Solution", _, " found for instance", instance, "(", len(initial_solution), ")")
+                obj_val = obj_func(initial_solution)
+                print("Objective value: ", obj_val)
+
+        instance += 1
+
+        try:
+            df.to_excel('results/EA/output.xlsx', index=False)
+        except PermissionError:
+            print("Please close the file output.xlsx and try again")
+        except FileNotFoundError:
+            print("File not found")
+
+        print("solutions found: ", len(df.index))
