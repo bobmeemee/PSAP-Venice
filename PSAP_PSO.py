@@ -2,9 +2,9 @@ import pandas as pd
 import time
 import random as rd
 import numpy as np
+from matplotlib import pyplot as plt
 
-from Problem import Movement, time_to_decimal, decimal_to_time, validate_solution, generate_initial_solution, \
-    read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest, collect_instance_data
+from Problem import validate_solution, generate_initial_solution, read_data, earliest, obj_func
 
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6
@@ -16,8 +16,14 @@ class Particle:
         self.best_position = position  # dictionary with movements as keys and scheduled times as values of the best
         # solution found by the particle)
 
+        self.velocity = {mov: 0 for mov in position}  # dictionary with movements as keys and time units as values
+
         self.informants = []
         self.best_informant = None
+
+    def update_best_position(self):
+        if obj_func(self.position) < obj_func(self.best_position):
+            self.best_position = self.position.copy()
 
     def set_informants(self, swarm, percentage):
         self.informants = [self]
@@ -27,13 +33,36 @@ class Particle:
                 next_informant = swarm[rd.randint(0, len(swarm) - 1)]
             self.informants.append(next_informant)
 
-        self.best_informant = self.informants[np.argmin([obj_func(solution) for solution in self.informants])]
+        self.best_informant = self.informants[
+            np.argmin([obj_func(informant.position) for informant in self.informants])]
 
     def get_previous_best_informant(self):
         return self.best_informant
 
     def set_best_informant(self):
-        self.best_informant = self.informants[np.argmin([obj_func(solution) for solution in self.informants])]
+        self.best_informant = self.informants[
+            np.argmin([obj_func(informant.position) for informant in self.informants])]
+
+    def update_velocity(self, alltime_best_solution, alpha, beta, gamma, delta):
+        # get random numbers from 0 to corresponding coefficient
+        b = rd.random()
+        c = rd.random()
+        d = rd.random()
+        # get new velocity
+        new_velocity = {}
+        for m in self.velocity:
+            new_velocity[m] = alpha * self.velocity[m] + \
+                              beta * b * (self.best_position[m] - self.position[m]) + \
+                              gamma * c * (self.best_informant.position[m] - self.position[m]) + \
+                              delta * d * (alltime_best_solution[m] - self.position[m])
+        self.velocity = new_velocity
+
+    def move_position(self, epsilon):
+        # get new position
+        new_position = {}
+        for m in self.position:
+            new_position[m] = self.position[m] + epsilon * self.velocity[m]
+        self.position = new_position
 
 
 def create_swarm(movements, swarm_size, deviation_scale=20, time_interval=5):
@@ -51,6 +80,61 @@ def create_swarm(movements, swarm_size, deviation_scale=20, time_interval=5):
     return swarm
 
 
+def obj_func(solution, precedence=None):
+    cost = 0
+    for key, value in solution.items():
+        # penalty for deviation from optimal time
+        if key.vessel_type == 'Cargo ship':
+            cost += 1 * abs(key.optimal_time - value) * 5
+        else:
+            cost += 1 * abs(key.optimal_time - value) * 5
+
+        # if abs(key.optimal_time - value) > TIME_WINDOW / 60 / 2:
+        #     cost += 100 * abs(key.optimal_time - value)
+
+        # penalty for headway violations
+        # TODO: tweak the penalty values
+        for key2, value2 in solution.items():
+            if key != key2:
+                if key.headway.get(key2.id_number)[0] == 0:
+                    # m and m' are the same vessel, m can't be scheduled before m'
+                    delta_t = value2 - value
+                    if delta_t < 0:
+                        cost += 1 * abs(delta_t)
+                elif key.headway.get(key2.id_number)[0] == 1:
+                    # headway has to be applied
+                    delta_t = value2 - value
+                    if delta_t < key.headway.get(key2.id_number)[1] and delta_t > 0.:
+                        cost += abs(delta_t) * 2000
+                        if abs(delta_t) * 2000 < 300:
+                            cost += 300
+                else:
+                    # no headway has to be applied
+                    cost += 0
+
+        # check if the precedence constraints are satisfied
+        if precedence is not None:
+            precedences = precedence.get(key)  # {m': headway}
+            if precedences is None:
+                continue
+            for other_movement, headway in precedences.items():
+                if key == other_movement:
+                    print('ERROR: Movement is in its own precedence constraints')
+                    return False
+
+                # precedence can be negative
+                time_difference = solution[other_movement] - value
+                if headway >= 0:
+                    if time_difference < headway:
+                        cost += 10 * abs(time_difference - headway)
+
+                else:
+                    if time_difference > headway:
+                        cost += 10 * abs(time_difference - headway)
+
+    return cost
+
+
 # ============PARITCLE SWARM OPTIMIZATION================
 # MILP SOLVER BASED ON PSO
 def solve_with_precedence_constraints_PSO(movements: list, precedence: dict, max_time: int, epochs, swarm_size=10,
@@ -66,55 +150,72 @@ def solve_with_precedence_constraints_PSO(movements: list, precedence: dict, max
 
     # create the swarm
     swarm = create_swarm(movements, swarm_size)
-    all_best_obj_val = min([obj_func(solution, precedence) for solution in swarm])
-    all_best_solution = swarm[np.argmin([obj_func(solution, precedence) for solution in swarm])]
-    print("Initial best obj val: ", all_best_obj_val)
+
+    # set the informants
+    for particle in swarm:
+        particle.set_informants(swarm, informant_percentage)
+
+    # set the all time best solution
+    all_time_best_solution = {}
+    all_time_best_obj_val = float('inf')
+    for particle in swarm:
+        if obj_func(particle.best_position, precedence) < all_time_best_obj_val:
+            all_time_best_obj_val = obj_func(particle.best_position, precedence)
+            all_time_best_solution = particle.best_position.copy()
 
     e = 0
-    attempt = 0
-    stopping_condition_counter = 0
+    alltimebestsolutions = []
+    alltimebest_epoch = []
+    t0 = 100
+    alpha = 0.98
 
     # while the time limit is not reached
-    while time.time() - start_time < max_time and e < epochs:
-        if e >= epochs:
-            initial_solution = {m: m.optimal_time for m in movements}
-            initial_obj_val = obj_func(initial_solution)
-            e = 0
-            attempt += 1
-
-        # get the current best particle and update the all time best particle
-        current_best_solution = swarm[np.argmin([obj_func(solution, precedence) for solution in swarm])]
-        if obj_func(current_best_solution, precedence) < all_best_obj_val:
-            all_best_obj_val = obj_func(current_best_solution, precedence)
-            all_best_solution = current_best_solution.copy()
+    while time.time() - start_time < max_time and e < epochs and not validate_solution(all_time_best_solution,
+                                                                                       vessel_time_window):
+        # if e >= epochs:
+        #     initial_solution = {m: m.optimal_time for m in movements}
+        #     initial_obj_val = obj_func(initial_solution)
+        #     e = 0
+        #     attempt += 1
 
         for particle in swarm:
-            # the best solution currently found by the particle
-            x = particle.copy()
-            # select a small subset of the swarm including the current particle to be the informants
-            informants = [particle]
-            while len(informants) < informant_percentage * swarm_size:
-                next_informant = swarm[rd.randint(0, swarm_size - 1)]
-                while next_informant in informants:
-                    next_informant = swarm[rd.randint(0, swarm_size - 1)]
-                informants.append(next_informant)
-            # select the best informant
-            x_plus = informants[np.argmin([obj_func(solution, precedence) for solution in informants])]
-            # the best solution found by the particle over all epochs
-            x_exclamation = all_best_solution.copy()
+            particle.update_velocity(all_time_best_solution, alpha=alpha, beta=beta, gamma=gamma, delta=delta)
+            particle.move_position(epsilon=epsilon)
 
-            # select the best informant
-            best_informant = informants[np.argmin([obj_func(solution, precedence) for solution in informants])]
+        for particle in swarm:
+            particle.update_best_position()
+            particle.set_best_informant()
+            particle_obj_val = obj_func(particle.best_position, precedence)
 
-    if validate_solution(initial_solution, vessel_time_window, print_errors=True):
-        return initial_solution, initial_obj_val
+            # if the new solution is better, accept it
+            if particle_obj_val < all_time_best_obj_val:
+                all_time_best_solution = particle.best_position.copy()
+                all_time_best_obj_val = particle_obj_val
+            else:
+                # if the new solution is worse, accept it with a probability
+                p = rd.random()
+                if p < np.exp(-(particle_obj_val - all_time_best_obj_val) / t0):
+                    all_time_best_solution = particle.best_position.copy()
+                    all_time_best_obj_val = particle_obj_val
+
+        t0 = alpha * t0
+        e += 1
+
+    # plot the convergence with
+    if len(alltimebestsolutions) > 0:
+        plt.plot(alltimebest_epoch, alltimebestsolutions)
+        plt.xlabel('Epoch')
+        plt.ylabel('Objective value')
+        plt.show()
+
+    if validate_solution(all_time_best_solution, vessel_time_window, print_errors=True):
+        return all_time_best_solution, all_time_best_obj_val
     else:
         return None, None
 
 
-def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhood_size=4, t0=100,
-                                  alpha=.8, neighbor_deviation_scale=40, affected_movements=3, time_interval=5,
-                                  vessel_time_window=60 * 6):
+def solution_generating_procedure(movements: list, l, t, epochs=200, swarm_size=10, informant_percentage=0.5,
+                                  alpha=0.95, beta=0.8, gamma=0.8, delta=0.8, epsilon=0.8):
     # movements is a list of movements
     # sort the movements by time
     sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
@@ -128,8 +229,11 @@ def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhoo
         # unite the new subset with the fixed movements
         problem_subset = fixed_movements + movements_subset
         # solve the problem with the new subset and the precedence constraints
-        solution, obj_val = solve_with_precedence_constraints_PSO(problem_subset, precedence, max_time=t,
-                                                                  epochs=epochs)
+        solution, obj_val = solve_with_precedence_constraints_PSO(problem_subset, precedence, t, epochs=epochs,
+                                                                  informant_percentage=informant_percentage,
+                                                                  swarm_size=swarm_size,
+                                                                  alpha=alpha, beta=beta, gamma=gamma, delta=delta,
+                                                                  epsilon=epsilon)
 
         # if no solution was found, return None
         if solution is None:
@@ -160,14 +264,23 @@ def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhoo
         return None, None
 
 
-def generate_parameters(epochs_rng, neighborhood_size_rng, t0_rng, alpha_rng, neighbor_deviation_scale_rng,
-                        affected_movements_rng):
-    pass
+def generate_parameters_PSO(epochs_rng, swarm_size_rng, informant_percentage_rng, alpha_rng, beta_rng, gamma_rng,
+                            delta_rng, epsilon_rng):
+    epochs = rd.randint(epochs_rng[0], epochs_rng[1])
+    swarm_size = rd.randint(swarm_size_rng[0], swarm_size_rng[1])
+    informant_percentage = rd.uniform(informant_percentage_rng[0], informant_percentage_rng[1])
+    alpha = rd.uniform(alpha_rng[0], alpha_rng[1])
+    beta = rd.uniform(beta_rng[0], beta_rng[1])
+    gamma = rd.uniform(gamma_rng[0], gamma_rng[1])
+    delta = rd.uniform(delta_rng[0], delta_rng[1])
+    epsilon = rd.uniform(epsilon_rng[0], epsilon_rng[1])
+
+    return epochs, swarm_size, informant_percentage, alpha, beta, gamma, delta, epsilon
 
 
 if __name__ == '__main__':
     sol_found = False
-    instance = 82
+    instance = 2
     valid_solutions = []
     objective_values = []
 
@@ -195,10 +308,26 @@ if __name__ == '__main__':
         print("Objective value initial solution: ", obj_func(initial_solution))
 
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(10):
+        for _ in range(7):
+            epochs, swarm_size, informant_percentage, alpha, beta, gamma, delta, epsilon = \
+                generate_parameters_PSO(epochs_rng=[300, 300],
+                                        swarm_size_rng=[20, 20],
+                                        informant_percentage_rng=[0.5, 1],
+                                        alpha_rng=[0.7, 0.95],
+                                        beta_rng=[0.2, 0.9],
+                                        gamma_rng=[0.2, 0.9],
+                                        delta_rng=[0.0, 0.3],
+                                        epsilon_rng=[0.1, 0.1])
+            print("epochs: ", epochs, "swarm_size: ", swarm_size, "informant_percentage: ", informant_percentage,
+                  "alpha: ", alpha, "beta: ", beta, "gamma: ", gamma, "delta: ", delta, "epsilon: ", epsilon)
 
-            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5)
+            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5, epochs=epochs,
+                                                                      swarm_size=swarm_size,
+                                                                      informant_percentage=informant_percentage,
+                                                                      alpha=alpha, beta=beta, gamma=gamma, delta=delta,
+                                                                      epsilon=epsilon)
 
+            valid_solution_params = []
             if initial_solution is not None:
                 # set the movement scheduled to the result of the solution generating procedure
                 for m, t in initial_solution.items():
@@ -206,20 +335,24 @@ if __name__ == '__main__':
                 print("Solution", _, " found for instance", instance, "(", len(initial_solution), ")")
                 obj_val = obj_func(initial_solution)
                 print("Objective value: ", obj_val)
-                df.loc[len(df.index)] = [instance, len(initial_solution),
-                                         np.median([abs(m.get_delay()) for m in initial_solution.keys()]),
-                                         np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
-                                         epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
-                                         affected_movements, TIME_INTERVAL, TIME_WINDOW]
+                valid_solution_params.append([epochs, swarm_size, informant_percentage, alpha, beta, gamma, delta,
+                                              epsilon])
+
+                # df.loc[len(df.index)] = [instance, len(initial_solution),
+                #                          np.median([abs(m.get_delay()) for m in initial_solution.keys()]),
+                #                          np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
+                #                          epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
+                #                          affected_movements, TIME_INTERVAL, TIME_WINDOW]
             else:
                 print("No solution found for instance", instance)
-                df.loc[len(df.index)] = [instance, None, None, None, epochs, None, neighborhood_size, t0, alpha,
-                                         neighbor_deviation_scale, affected_movements, TIME_INTERVAL, TIME_WINDOW]
+                # df.loc[len(df.index)] = [instance, None, None, None, epochs, None, neighborhood_size, t0, alpha,
+                #                          neighbor_deviation_scale, affected_movements, TIME_INTERVAL, TIME_WINDOW]
 
         instance += 1
+        print(valid_solution_params)
 
         try:
-            df.to_excel('results/SA/output_40x100_T0xAlpha_continued_1.xlsx', index=False)
+            df.to_excel('results/PSO/output.xlsx', index=False)
         except PermissionError:
             print("Please close the file output.xlsx and try again")
 
