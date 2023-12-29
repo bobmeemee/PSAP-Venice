@@ -10,63 +10,101 @@ TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6
 
 
-# ============SIMULATED ANNEALING================
-# method one: generate a random solution and improve on it by also respecting the precedence constraints
-def solve_with_precedence_constraints_SA(movements: list, precedence: dict, max_time: int, epochs,
-                                         neighborhood_size: int,
-                                         t0=100, alpha=0.98, neighbor_deviation_scale=40, affected_movements=3,
-                                         time_interval=5, vessel_time_window=60 * 6):
+class Particle:
+    def __init__(self, position=None):
+        self.position = position  # dictionary with movements as keys and scheduled times as values
+        self.best_position = position  # dictionary with movements as keys and scheduled times as values of the best
+        # solution found by the particle)
+
+        self.informants = []
+        self.best_informant = None
+
+    def set_informants(self, swarm, percentage):
+        self.informants = [self]
+        while len(self.informants) < int(percentage * len(swarm)):
+            next_informant = swarm[rd.randint(0, len(swarm) - 1)]
+            while next_informant in self.informants:
+                next_informant = swarm[rd.randint(0, len(swarm) - 1)]
+            self.informants.append(next_informant)
+
+        self.best_informant = self.informants[np.argmin([obj_func(solution) for solution in self.informants])]
+
+    def get_previous_best_informant(self):
+        return self.best_informant
+
+    def set_best_informant(self):
+        self.best_informant = self.informants[np.argmin([obj_func(solution) for solution in self.informants])]
+
+
+def create_swarm(movements, swarm_size, deviation_scale=20, time_interval=5):
+    swarm = []
+    for i in range(swarm_size):
+        # create a random solution
+        for m in movements:
+            time_deviation = round(rd.gauss(0, deviation_scale) / time_interval) * time_interval
+            m.set_scheduled_time(m.optimal_time + time_deviation / 60)
+        random_solution = {m: m.get_scheduled_time() for m in movements}
+
+        # create a particle with the random solution as position
+        particle = Particle(position=random_solution.copy())
+        swarm.append(particle)
+    return swarm
+
+
+# ============PARITCLE SWARM OPTIMIZATION================
+# MILP SOLVER BASED ON PSO
+def solve_with_precedence_constraints_PSO(movements: list, precedence: dict, max_time: int, epochs, swarm_size=10,
+                                          informant_percentage=0.5,
+                                          alpha=0.95, beta=0.8, gamma=0.8, delta=0.8, epsilon=0.8,
+                                          vessel_time_window=60 * 6):
     # the initial solution is a dictionary with movements as keys and scheduled times as values
     # the precedence constraints are a dictionary with movements as keys and lists of movements as values
     # the max_time is the maximum time in minutes that the movements can be scheduled
 
     # start the timer
     start_time = time.time()
-    initial_solution = {m: m.optimal_time for m in movements}
-    initial_obj_val = obj_func(initial_solution)
+
+    # create the swarm
+    swarm = create_swarm(movements, swarm_size)
+    all_best_obj_val = min([obj_func(solution, precedence) for solution in swarm])
+    all_best_solution = swarm[np.argmin([obj_func(solution, precedence) for solution in swarm])]
+    print("Initial best obj val: ", all_best_obj_val)
+
     e = 0
     attempt = 0
     stopping_condition_counter = 0
 
     # while the time limit is not reached
-    while time.time() - start_time < max_time and not validate_solution(initial_solution, vessel_time_window):
+    while time.time() - start_time < max_time and e < epochs:
         if e >= epochs:
             initial_solution = {m: m.optimal_time for m in movements}
             initial_obj_val = obj_func(initial_solution)
             e = 0
             attempt += 1
 
-        for i in range(neighborhood_size):
-            new_solution = initial_solution.copy()
-            new_solution = generate_neighbor_solution(new_solution, affected_movements=affected_movements,
-                                                      deviation_scale=neighbor_deviation_scale,
-                                                      time_interval=time_interval)
+        # get the current best particle and update the all time best particle
+        current_best_solution = swarm[np.argmin([obj_func(solution, precedence) for solution in swarm])]
+        if obj_func(current_best_solution, precedence) < all_best_obj_val:
+            all_best_obj_val = obj_func(current_best_solution, precedence)
+            all_best_solution = current_best_solution.copy()
 
-            new_obj_val = obj_func(new_solution, precedence=precedence)
+        for particle in swarm:
+            # the best solution currently found by the particle
+            x = particle.copy()
+            # select a small subset of the swarm including the current particle to be the informants
+            informants = [particle]
+            while len(informants) < informant_percentage * swarm_size:
+                next_informant = swarm[rd.randint(0, swarm_size - 1)]
+                while next_informant in informants:
+                    next_informant = swarm[rd.randint(0, swarm_size - 1)]
+                informants.append(next_informant)
+            # select the best informant
+            x_plus = informants[np.argmin([obj_func(solution, precedence) for solution in informants])]
+            # the best solution found by the particle over all epochs
+            x_exclamation = all_best_solution.copy()
 
-            # if the new solution is better, accept it
-            if new_obj_val < initial_obj_val:
-                initial_solution = new_solution.copy()
-                initial_obj_val = new_obj_val
-            else:
-                # if the new solution is worse, accept it with a probability
-                p = rd.random()
-                if p < np.exp(-(new_obj_val - initial_obj_val) / t0):
-                    initial_solution = new_solution.copy()
-                    initial_obj_val = new_obj_val
-
-            if abs(new_obj_val - initial_obj_val) < 0.000001:
-                stopping_condition_counter += 1
-                if stopping_condition_counter == 10 * neighborhood_size:
-                    initial_solution = {m: m.optimal_time for m in movements}
-                    initial_obj_val = obj_func(initial_solution)
-                    e = 0
-                    attempt += 1
-
-        # update the temperature
-        t0 = alpha * t0
-        e += 1
-        # print("Attempt: ", attempt, "Epoch: ", e, "Time: ", time.time() - start_time, "Objective value: ", initial_obj_val)
+            # select the best informant
+            best_informant = informants[np.argmin([obj_func(solution, precedence) for solution in informants])]
 
     if validate_solution(initial_solution, vessel_time_window, print_errors=True):
         return initial_solution, initial_obj_val
@@ -90,13 +128,8 @@ def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhoo
         # unite the new subset with the fixed movements
         problem_subset = fixed_movements + movements_subset
         # solve the problem with the new subset and the precedence constraints
-        solution, obj_val = solve_with_precedence_constraints_SA(problem_subset, precedence, max_time=t,
-                                                                 epochs=epochs, neighborhood_size=neighborhood_size,
-                                                                 t0=t0, alpha=alpha,
-                                                                 neighbor_deviation_scale=neighbor_deviation_scale,
-                                                                 affected_movements=affected_movements,
-                                                                 time_interval=time_interval,
-                                                                 vessel_time_window=vessel_time_window)
+        solution, obj_val = solve_with_precedence_constraints_PSO(problem_subset, precedence, max_time=t,
+                                                                  epochs=epochs)
 
         # if no solution was found, return None
         if solution is None:
@@ -129,14 +162,7 @@ def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhoo
 
 def generate_parameters(epochs_rng, neighborhood_size_rng, t0_rng, alpha_rng, neighbor_deviation_scale_rng,
                         affected_movements_rng):
-    epochs = rd.randint(epochs_rng[0], epochs_rng[1])
-    neighborhood_size = rd.randint(neighborhood_size_rng[0], neighborhood_size_rng[1])
-    t0 = rd.randint(t0_rng[0], t0_rng[1])
-    alpha = rd.uniform(alpha_rng[0], alpha_rng[1])
-    neighbor_deviation_scale = rd.randint(neighbor_deviation_scale_rng[0], neighbor_deviation_scale_rng[1])
-    affected_movements = rd.randint(affected_movements_rng[0], affected_movements_rng[1])
-
-    return epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements
+    pass
 
 
 if __name__ == '__main__':
@@ -168,38 +194,10 @@ if __name__ == '__main__':
         result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
         print("Objective value initial solution: ", obj_func(initial_solution))
 
-        # # collect instance data
-        # instance_data = collect_instance_data(result_list)
-        # df_instance.loc[len(df_instance.index)] = [instance, instance_data['number_of_movements'],
-        #                                            instance_data['number_of_vessels'], instance_data['average_headway'],
-        #                                            instance_data['std_dev_headway'], instance_data['spread'],
-        #                                            instance_data['average_time_between_movements'],
-        #                                            instance_data['average_travel_time']]
-        # try:
-        #     df_instance.to_excel('results/instance_data.xlsx', index=False)
-        # except PermissionError:
-        #     print("Please close the file instance_data.xlsx and try again")
-        #
-        # # go back to top of loop
-        # instance += 1
-        # continue
-
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(40):
-            epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-                epochs_rng=[200, 200],
-                neighborhood_size_rng=[6, 6],
-                t0_rng=[40, 500],
-                alpha_rng=[0.6, 0.99],
-                neighbor_deviation_scale_rng=[40, 40],
-                affected_movements_rng=[4, 4])
+        for _ in range(10):
 
-            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5, epochs=epochs,
-                                                                      neighborhood_size=neighborhood_size,
-                                                                      t0=t0, alpha=alpha,
-                                                                      neighbor_deviation_scale=neighbor_deviation_scale,
-                                                                      affected_movements=affected_movements,
-                                                                      time_interval=5, vessel_time_window=TIME_WINDOW)
+            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5)
 
             if initial_solution is not None:
                 # set the movement scheduled to the result of the solution generating procedure

@@ -4,7 +4,8 @@ import random as rd
 import numpy as np
 
 from Problem import Movement, time_to_decimal, decimal_to_time, validate_solution, generate_initial_solution, \
-    read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest
+    read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest, \
+    validate_precedence_constraints, collect_instance_data
 
 INSTANCE = 19
 TIME_INTERVAL = 5
@@ -132,6 +133,10 @@ def solution_generating_procedure(movements: list, l, t):
 
 
 if __name__ == '__main__':
+
+
+
+    """
     sol_found = False
     instance = 1
     valid_solutions = []
@@ -160,7 +165,6 @@ if __name__ == '__main__':
         print("solutions found: ", len(valid_solutions), "/", instance - 1)
 
 
-"""
     df_movimenti = pd.read_excel(str('data/Instance_' + str(INSTANCE) + '.xlsx'), header=0, sheet_name='movimenti')
     df_precedenze = pd.read_excel(str('data/Instance_' + str(INSTANCE) + '.xlsx'), header=0, sheet_name='Precedenze')
     initial_solution, initial_obj_val, temp, obj_val = SA_solve(epochs=EPOCHS, neighborhood_size=NEIGHBORHOOD_SIZE,

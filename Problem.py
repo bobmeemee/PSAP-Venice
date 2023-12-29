@@ -1,15 +1,23 @@
+import datetime
 import random as rd
+
+import numpy as np
 import pandas as pd
 
 
 class Movement:
-    def __init__(self, id_number, vessel_type, optimal_time):
+    def __init__(self, vessel_number, id_number, vessel_type, optimal_time, travel_time=0):
+        self.vessel_number = vessel_number
         self.id_number = id_number
         self.optimal_time = time_to_decimal(optimal_time)
         self.__private_scheduled_time = self.optimal_time
         self.__private_delay = 0
         self.vessel_type = vessel_type
         self.headway = dict()
+
+        self.travel_time = travel_time
+        self.berth_times = dict()
+
 
     def add_headway(self, id_number, time):
         self.headway[id_number] = time
@@ -36,6 +44,14 @@ class Movement:
 
 
 def time_to_decimal(time):
+    if type(time) == datetime.time:
+        # if the time is a datetime.time object, convert it to decimal
+        return time.hour + time.minute / 60
+
+    if type(time) == datetime.datetime:
+        # if the time is a datetime.datetime object, convert it to decimal
+        return time.hour + time.minute / 60 + time.second / 3600 + 24
+
     hour = int(time.split(':')[0])
     minute = float(time.split(':')[1])
     return hour + minute / 60
@@ -51,15 +67,17 @@ def read_data(instance):
     # read in the data
     df_movimenti = pd.read_excel(str('data/Instance_' + str(instance) + '.xlsx'), header=0, sheet_name='movimenti')
     df_precedenze = pd.read_excel(str('data/Instance_' + str(instance) + '.xlsx'), header=0, sheet_name='Precedenze')
-    return df_movimenti, df_precedenze
+    df_tempi = pd.read_excel(str('data/Instance_' + str(instance) + '.xlsx'), header=0, sheet_name='Tempi')
+    return df_movimenti, df_precedenze, df_tempi
 
 
 # create a dictionary with the initial solution {movement: scheduled_time}
-def generate_initial_solution(df, df_headway, deviation_scale=1, time_interval=5):
+def generate_initial_solution(df, df_headway, deviation_scale=1, time_interval=5, df_tempi=None):
     init_sol = dict()
     j = 0
+    k = 0
     for i in range(len(df)):
-        m = Movement(df.iloc[i, 1], df.iloc[i, 2], df.iloc[i, 5])
+        m = Movement(df.iloc[i, 0], df.iloc[i, 1], df.iloc[i, 2], df.iloc[i, 5])
         # add a random amount of minutes to the optimal time in intervals of TIME_INTERVAL
         # the amount of minutes is drawn from a normal distribution with mean 0 and standard deviation deviation_scale
         # this deviation scale is a parameter that can be tuned
@@ -78,6 +96,35 @@ def generate_initial_solution(df, df_headway, deviation_scale=1, time_interval=5
             if j == len(df_headway) - 1:
                 break
             j += 1
+
+        # add the travel time to the movement
+        if df_tempi is not None:
+            start_time = m.optimal_time
+            end_time = m.optimal_time
+            difference_actual = 0
+            while df_tempi.iloc[k, 0] == m.id_number:
+                end_time = time_to_decimal(df_tempi.iloc[k, 4])
+
+                # there are some issues with the data, some travel times are offset by a random amount of minutes
+                if type(df_tempi.iloc[k, 4]) == datetime.time or type(df_tempi.iloc[k, 4]) == datetime.datetime \
+                        and df_tempi.iloc[k, 1] == 1:
+                    difference_actual = end_time - start_time
+                    if type(df_tempi.iloc[k, 4]) == datetime.datetime:
+                        difference_actual = 1
+
+                berth = df_tempi.iloc[k, 2]
+                m.berth_times[berth] = end_time - difference_actual
+
+                if (end_time - difference_actual) > start_time:
+                    m.travel_time = end_time - start_time - difference_actual
+                else:
+                    m.travel_time = 0
+
+                if k == len(df_tempi) - 1:
+                    break
+                k += 1
+
+
 
         init_sol[m] = scheduled_time
     return init_sol
@@ -229,3 +276,46 @@ def earliest(solution: dict, movements: list):
             earliest_time = solution.get(m)
             earliest_movement = m
     return earliest_movement, earliest_time
+
+
+def collect_instance_data(movements):
+    # collect the data of the instance
+    instance_data = dict()
+    number_of_movements = len(movements)
+    number_of_vessels = len(set([m.vessel_number for m in movements]))
+
+    headways = []
+    for m in movements:
+        for key, value in m.headway.items():
+            headways.append(value[1])
+
+    # average headway and spread of the movements
+    average_headway = np.average(headways)
+    std_dev_headway = np.std(headways)
+
+    # spread of the movements
+    movements_sorted = sorted(movements, key=lambda x: x.optimal_time)
+    spread = movements_sorted[-1].optimal_time - movements_sorted[0].optimal_time
+
+    # average time between movements
+    average_time_between_movements = spread / number_of_movements
+
+    # average travel time
+    average_travel_time = 0
+    for m in movements:
+        average_travel_time += m.travel_time
+    average_travel_time = average_travel_time / number_of_movements
+
+
+    # berth congestion
+
+
+    instance_data['number_of_movements'] = number_of_movements
+    instance_data['number_of_vessels'] = number_of_vessels
+    instance_data['average_headway'] = average_headway
+    instance_data['std_dev_headway'] = std_dev_headway
+    instance_data['spread'] = spread
+    instance_data['average_time_between_movements'] = average_time_between_movements
+    instance_data['average_travel_time'] = average_travel_time
+
+    return instance_data

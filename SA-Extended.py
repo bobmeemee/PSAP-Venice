@@ -4,16 +4,10 @@ import random as rd
 import numpy as np
 
 from Problem import Movement, time_to_decimal, decimal_to_time, validate_solution, generate_initial_solution, \
-    read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest
+    read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest, collect_instance_data
 
-INSTANCE = 19
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6
-
-T0 = 1000
-ALPHA = 0.95
-NEIGHBORHOOD_SIZE = 5  # number of neighbours to consider at each iteration
-EPOCHS = 300  # number of iterations
 
 
 # ============SIMULATED ANNEALING================
@@ -80,8 +74,8 @@ def solve_with_precedence_constraints_SA(movements: list, precedence: dict, max_
         return None, None
 
 
-def solution_generating_procedure(movements: list, l, t, epochs=EPOCHS, neighborhood_size=NEIGHBORHOOD_SIZE, t0=T0,
-                                  alpha=ALPHA, neighbor_deviation_scale=40, affected_movements=3, time_interval=5,
+def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhood_size=4, t0=100,
+                                  alpha=.8, neighbor_deviation_scale=40, affected_movements=3, time_interval=5,
                                   vessel_time_window=60 * 6):
     # movements is a list of movements
     # sort the movements by time
@@ -147,7 +141,7 @@ def generate_parameters(epochs_rng, neighborhood_size_rng, t0_rng, alpha_rng, ne
 
 if __name__ == '__main__':
     sol_found = False
-    instance = 1
+    instance = 82
     valid_solutions = []
     objective_values = []
 
@@ -155,31 +149,50 @@ if __name__ == '__main__':
                                'neighborhood_size', 't0', 'alpha', 'neighbor_deviation_scale', 'affected_movements',
                                'time_interval', 'vessel_time_window'])
 
+    df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_vessels', 'average_headway',
+                                        'std_dev_headway', 'spread', 'average_time_between_movements',
+                                        'average_travel_time'])
+
     time_window = 60 * 6
     time_interval = 5
-    while instance < 99:
+    while instance < 101:
         print("=====================================")
         print("Instance: ", instance)
         # read in the data
-        df_movimenti, df_precedenze = read_data(1)
+        df_movimenti, df_precedenze, df_tempi = read_data(instance)
         # generate the initial solution
         initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
-                                                     time_interval=TIME_INTERVAL)
+                                                     time_interval=TIME_INTERVAL, df_tempi=df_tempi)
         movements = list(initial_solution.keys())
         sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
         result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
-
         print("Objective value initial solution: ", obj_func(initial_solution))
 
+        # # collect instance data
+        # instance_data = collect_instance_data(result_list)
+        # df_instance.loc[len(df_instance.index)] = [instance, instance_data['number_of_movements'],
+        #                                            instance_data['number_of_vessels'], instance_data['average_headway'],
+        #                                            instance_data['std_dev_headway'], instance_data['spread'],
+        #                                            instance_data['average_time_between_movements'],
+        #                                            instance_data['average_travel_time']]
+        # try:
+        #     df_instance.to_excel('results/instance_data.xlsx', index=False)
+        # except PermissionError:
+        #     print("Please close the file instance_data.xlsx and try again")
+        #
+        # # go back to top of loop
+        # instance += 1
+        # continue
+
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(20):
+        for _ in range(40):
             epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-                epochs_rng=[50, 500],
-                neighborhood_size_rng=[2, 8],
+                epochs_rng=[200, 200],
+                neighborhood_size_rng=[6, 6],
                 t0_rng=[40, 500],
-                alpha_rng=[0.8, 0.99],
-                neighbor_deviation_scale_rng=[10, 60],
-                affected_movements_rng=[2, 7])
+                alpha_rng=[0.6, 0.99],
+                neighbor_deviation_scale_rng=[40, 40],
+                affected_movements_rng=[4, 4])
 
             initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5, epochs=epochs,
                                                                       neighborhood_size=neighborhood_size,
@@ -200,31 +213,16 @@ if __name__ == '__main__':
                                          np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
                                          epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
                                          affected_movements, TIME_INTERVAL, TIME_WINDOW]
+            else:
+                print("No solution found for instance", instance)
+                df.loc[len(df.index)] = [instance, None, None, None, epochs, None, neighborhood_size, t0, alpha,
+                                         neighbor_deviation_scale, affected_movements, TIME_INTERVAL, TIME_WINDOW]
 
         instance += 1
 
         try:
-            df.to_excel('results/output_2000.xlsx', index=False)
+            df.to_excel('results/SA/output_40x100_T0xAlpha_continued_1.xlsx', index=False)
         except PermissionError:
             print("Please close the file output.xlsx and try again")
 
         print("solutions found: ", len(df.index))
-
-"""
-    df_movimenti = pd.read_excel(str('data/Instance_' + str(INSTANCE) + '.xlsx'), header=0, sheet_name='movimenti')
-    df_precedenze = pd.read_excel(str('data/Instance_' + str(INSTANCE) + '.xlsx'), header=0, sheet_name='Precedenze')
-    initial_solution, initial_obj_val, temp, obj_val = SA_solve(epochs=EPOCHS, neighborhood_size=NEIGHBORHOOD_SIZE,
-                                                                df_movimenti=df_movimenti, df_precedenze=df_precedenze,
-                                                                t0=T0, alpha=ALPHA, time_window=TIME_WINDOW,
-                                                                time_interval=TIME_INTERVAL, print_errors=True)
-
-    if initial_solution is not None:
-        print('Initial solution: ' + str(initial_solution))
-        print('Initial objective value: ' + str(initial_obj_val))
-        print('Final solution: ' + str(temp))
-        print('Final objective value: ' + str(obj_val))
-
-    elif initial_solution is None:
-        print('No solution found')
-        # TODO implement a different algorithm to find a feasible solution
-"""

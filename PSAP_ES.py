@@ -236,7 +236,7 @@ if __name__ == '__main__':
         print("=====================================")
         print("Instance: ", instance)
         # read in the data
-        df_movimenti, df_precedenze = read_data(1)
+        df_movimenti, df_precedenze, df_tempi = read_data(1)
         # generate the initial solution
         initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
                                                      time_interval=TIME_INTERVAL)
