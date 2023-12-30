@@ -180,6 +180,8 @@ def obj_func(solution, precedence=None):
                     delta_t = value2 - value
                     if delta_t < key.headway.get(key2.id_number)[1] and delta_t > 0.:
                         cost += abs(delta_t) * 2000
+                        if abs(delta_t) < 0.1:
+                            cost += 1000
                 else:
                     # no headway has to be applied
                     cost += 0
