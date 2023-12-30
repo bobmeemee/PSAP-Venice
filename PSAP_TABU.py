@@ -65,7 +65,6 @@ def solve_with_precedence_constraints_TABU(movements: list, precedence: dict, ma
     tabu_list = TabuList(tabu_list_size)
 
     if validate_solution(initial_solution, vessel_time_window):
-        print("Initial solution is valid")
         return initial_solution, initial_obj_val
 
     # while the time limit is not reached
@@ -108,13 +107,14 @@ def solve_with_precedence_constraints_TABU(movements: list, precedence: dict, ma
             best_obj_val = initial_obj_val
 
     if validate_solution(initial_solution, vessel_time_window, print_errors=True):
-        print("Solution found with tabu search")
         return best_solution, initial_obj_val
     else:
         return None, None
 
 
 def solution_generating_procedure(movements: list, l, t,
+                                  tabu_list_size=3, number_of_tweaks=10,
+                                  affected_movements=4,
                                   time_interval=5, vessel_time_window=60 * 6):
     # movements is a list of movements
     # sort the movements by time
@@ -131,6 +131,10 @@ def solution_generating_procedure(movements: list, l, t,
         # solve the problem with the new subset and the precedence constraints
         solution, obj_val = solve_with_precedence_constraints_TABU(problem_subset, precedence, max_time=t,
                                                                    time_interval=time_interval,
+                                                                   tabu_list_size=tabu_list_size,
+                                                                   number_of_tweaks=number_of_tweaks,
+                                                                   affected_movements=affected_movements,
+
                                                                    vessel_time_window=vessel_time_window)
 
         # if no solution was found, return None
@@ -166,19 +170,22 @@ def solution_generating_procedure(movements: list, l, t,
     return solution, obj_val, None
 
 
-def generate_parameters():
-    pass
+def generate_parameters(tabu_list_size_rng, number_of_tweaks_rng, affected_movements_rng):
+    tabu_list_size = rd.randint(tabu_list_size_rng[0], tabu_list_size_rng[1])
+    number_of_tweaks = rd.randint(number_of_tweaks_rng[0], number_of_tweaks_rng[1])
+    affected_movements = rd.randint(affected_movements_rng[0], affected_movements_rng[1])
+
+    return tabu_list_size, number_of_tweaks, affected_movements
 
 
 if __name__ == '__main__':
     sol_found = False
-    instance = 2
+    instance = 1
     valid_solutions = []
     objective_values = []
 
     df = pd.DataFrame(columns=['instance', 'number of movements', 'median delay', 'average delay', 'obj_val',
-                               'iteration_time_limit', 'neighbor_deviation_scale',
-                               'neighbor_affected_movements', 'homebase_deviation_scale', 'homebase_affected_movements',
+                               'tabu_list_size', 'number_of_tweaks', 'affected_movements',
                                'time_interval', 'vessel_time_window', 'solution_found'])
 
     df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_vessels', 'average_headway',
@@ -186,7 +193,7 @@ if __name__ == '__main__':
                                         'average_travel_time'])
 
     time_window = 60 * 6
-    time_interval = 10
+    time_interval = 5
     while instance < 101:
         print("=====================================")
         print("Instance: ", instance)
@@ -201,11 +208,15 @@ if __name__ == '__main__':
         print("Objective value initial solution: ", obj_func(initial_solution))
 
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(5):
-            ZAZA = ZAZA + 1
+        for _ in range(10):
+            # generate the parameters
+            tabu_list_size, number_of_tweaks, affected_movements = generate_parameters([2, 6], [3, 10], [2, 6])
 
             initial_solution, obj_val, prev_initial_solution = \
                 solution_generating_procedure(result_list, 3, 5,
+                                              tabu_list_size=tabu_list_size,
+                                              number_of_tweaks=number_of_tweaks,
+                                              affected_movements=affected_movements,
                                               time_interval=time_interval,
                                               vessel_time_window=time_window)
 
@@ -216,31 +227,28 @@ if __name__ == '__main__':
                 print("Solution", _, " found for instance", instance, "(", len(initial_solution), ")")
                 obj_val = obj_func(initial_solution)
                 print("Objective value: ", obj_val)
+                df.loc[len(df.index)] = [instance, len(initial_solution),
+                                         np.median([abs(m.get_delay()) for m in initial_solution.keys()]),
+                                         np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
+                                         obj_val, tabu_list_size, number_of_tweaks, affected_movements,
+                                         time_interval, time_window, 1]
 
-                # df.loc[len(df.index)] = [instance, len(initial_solution),
-                #                          np.median([abs(m.get_delay()) for m in initial_solution.keys()]),
-                #                          np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
-                #                          obj_val, 4, neighbor_deviation_scale, neighbor_affected_movements,
-                #                          homebase_deviation_scale, homebase_affected_movements, TIME_INTERVAL,
-                #                          TIME_WINDOW, 1]
                 sol_found += 1
             else:
                 print("No solution found for instance", instance)
                 for m, t in prev_initial_solution.items():
                     m.set_scheduled_time(t)
                 obj_val = obj_func(prev_initial_solution)
-                # df.loc[len(df.index)] = [instance, len(prev_initial_solution),
-                #                          np.median([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
-                #                          np.mean([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
-                #                          obj_val, 4, neighbor_deviation_scale, neighbor_affected_movements,
-                #                          homebase_deviation_scale, homebase_affected_movements, TIME_INTERVAL,
-                #                          TIME_WINDOW, 0]
-
+                df.loc[len(df.index)] = [instance, len(prev_initial_solution),
+                                         np.median([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
+                                         np.mean([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
+                                         obj_val, tabu_list_size, number_of_tweaks, affected_movements,
+                                         time_interval, time_window, 0]
         instance += 1
 
-        # try:
-        #     df.to_excel('results/TABU/output_100e.xlsx', index=False)
-        # except PermissionError:
-        #     print("Please close the file output.xlsx and try again")
+        try:
+            df.to_excel('results/TABU/output_100e.xlsx', index=False)
+        except PermissionError:
+            print("Please close the file output.xlsx and try again")
 
         print("solutions found: ", sol_found, "/", len(df.index))
