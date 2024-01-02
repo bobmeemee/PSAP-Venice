@@ -65,7 +65,7 @@ class Particle:
         self.position = new_position
 
 
-def create_swarm(movements, swarm_size, deviation_scale=40, time_interval=5):
+def create_swarm(movements, swarm_size, deviation_scale=45, time_interval=5):
     swarm = []
     for i in range(swarm_size):
         # create a random solution
@@ -171,7 +171,9 @@ def solve_with_precedence_constraints_PSO(movements: list, precedence: dict, max
         return all_time_best_solution, all_time_best_obj_val
 
     # while the time limit is not reached
-    while time.time() - start_time < max_time and e < epochs:
+    while time.time() - start_time < max_time and e < epochs and not validate_solution(all_time_best_solution,
+                                                                                       vessel_time_window):
+
         # if e >= epochs:
         #     initial_solution = {m: m.optimal_time for m in movements}
         #     initial_obj_val = obj_func(initial_solution)
@@ -189,8 +191,6 @@ def solve_with_precedence_constraints_PSO(movements: list, precedence: dict, max
             if particle_obj_val < all_time_best_obj_val:
                 all_time_best_solution = particle.best_position.copy()
                 all_time_best_obj_val = particle_obj_val
-
-
 
             # # if the new solution is better, accept it
             # if particle_obj_val < all_time_best_obj_val:
@@ -318,24 +318,24 @@ if __name__ == '__main__':
         print("Objective value initial solution: ", obj_func(initial_solution))
 
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(7):
+        for _ in range(3):
             epochs, swarm_size, informant_percentage, alpha, beta, gamma, delta, epsilon = \
                 generate_parameters_PSO(epochs_rng=[300, 300],
                                         swarm_size_rng=[100, 100],
-                                        informant_percentage_rng=[0.5, 1],
-                                        alpha_rng=[0.7, 0.95],
-                                        beta_rng=[0.2, 0.9],
-                                        gamma_rng=[0.2, 0.9],
-                                        delta_rng=[0.0, 0.3],
-                                        epsilon_rng=[0.1, 0.1])
+                                        informant_percentage_rng=[0.5, .5],
+                                        alpha_rng=[0.7, 0.9],
+                                        beta_rng=[0.5, 0.7],
+                                        gamma_rng=[0.5, 0.7],
+                                        delta_rng=[0.4, 0.5],
+                                        epsilon_rng=[0.2, 0.4])
             print("epochs: ", epochs, "swarm_size: ", swarm_size, "informant_percentage: ", informant_percentage,
                   "alpha: ", alpha, "beta: ", beta, "gamma: ", gamma, "delta: ", delta, "epsilon: ", epsilon)
 
-            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 15, epochs=100,
+            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 20, epochs=100,
                                                                       swarm_size=150,
-                                                                      informant_percentage=.5,
-                                                                      alpha=.8, beta=.6, gamma=.6, delta=.2,
-                                                                      epsilon=.2)
+                                                                      informant_percentage=informant_percentage,
+                                                                      alpha=alpha, beta=beta, gamma=gamma, delta=delta,
+                                                                      epsilon=epsilon)
 
             valid_solution_params = []
             if initial_solution is not None:
