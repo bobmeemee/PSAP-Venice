@@ -289,8 +289,11 @@ def collect_instance_data(movements):
     headways = []
     for m in movements:
         for key, value in m.headway.items():
-            headways.append(value[1])
+            # only consider the headways that have to be applied
+            if value[0] == 1:
+                headways.append(value[1])
 
+    number_of_headways = len(headways)
     # average headway and spread of the movements
     average_headway = np.average(headways)
     std_dev_headway = np.std(headways)
@@ -313,6 +316,7 @@ def collect_instance_data(movements):
 
 
     instance_data['number_of_movements'] = number_of_movements
+    instance_data['number_of_headways'] = number_of_headways
     instance_data['number_of_vessels'] = number_of_vessels
     instance_data['average_headway'] = average_headway
     instance_data['std_dev_headway'] = std_dev_headway

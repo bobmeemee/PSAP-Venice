@@ -1,10 +1,11 @@
 import pandas as pd
-from Problem import Movement, collect_instance_data, read_data, generate_initial_solution
+from Problem import collect_instance_data, read_data, generate_initial_solution
 
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6
 
-df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_vessels', 'average_headway',
+df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_headways',
+                                    'number_of_vessels', 'average_headway',
                                     'std_dev_headway', 'spread', 'average_time_between_movements',
                                     'average_travel_time'])
 
@@ -32,12 +33,13 @@ for instance in range(1, 101):
 
         instance_data = collect_instance_data(result_list)
         df_instance.loc[len(df_instance.index)] = [instance + plus, instance_data['number_of_movements'],
+                                                   instance_data['number_of_headways'],
                                                    instance_data['number_of_vessels'], instance_data['average_headway'],
                                                    instance_data['std_dev_headway'], instance_data['spread'],
                                                    instance_data['average_time_between_movements'],
                                                    instance_data['average_travel_time']]
 
         try:
-            df_instance.to_excel('results/instance_data_200.xlsx', index=False)
+            df_instance.to_excel('results/instance200.xlsx', index=False)
         except PermissionError:
             print("Please close the file instance_data.xlsx and try again")
