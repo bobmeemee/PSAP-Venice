@@ -51,9 +51,16 @@ def solve_with_precedence_constraints_SA(movements: list, precedence: dict, max_
             else:
                 # if the new solution is worse, accept it with a probability
                 p = rd.random()
-                if p < np.exp(-(new_obj_val - initial_obj_val) / t0):
-                    initial_solution = new_solution.copy()
-                    initial_obj_val = new_obj_val
+                try:
+                    if p < np.exp(-(new_obj_val - initial_obj_val) / t0):
+                        initial_solution = new_solution.copy()
+                        initial_obj_val = new_obj_val
+                except ZeroDivisionError:
+                    # if t0 is 0, accept the solution if it is better
+                    if new_obj_val < initial_obj_val:
+                        initial_solution = new_solution.copy()
+                        initial_obj_val = new_obj_val
+
 
             if abs(new_obj_val - initial_obj_val) < 0.000001:
                 stopping_condition_counter += 1
@@ -66,7 +73,6 @@ def solve_with_precedence_constraints_SA(movements: list, precedence: dict, max_
         # update the temperature
         t0 = alpha * t0
         e += 1
-        # print("Attempt: ", attempt, "Epoch: ", e, "Time: ", time.time() - start_time, "Objective value: ", initial_obj_val)
 
     if validate_solution(initial_solution, vessel_time_window, print_errors=True):
         return initial_solution, initial_obj_val
@@ -102,7 +108,7 @@ def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhoo
         if solution is None:
             print("No solution found while using precedence constraints")
             print("reached: ", len(fixed_movements), "/", len(movements))
-            return None, None
+            return None, prev_obj_val, prev_solution
         else:
             # get the earliest movement in the solution that is not in the fixed movements
             first_movement, first_movement_time = earliest(solution, movements_subset)
@@ -120,11 +126,10 @@ def solution_generating_procedure(movements: list, l, t, epochs=200, neighborhoo
         # remove the first movement from the candidates for the subset and select the next l earliest movements
         sorted_movements.remove(first_movement)
         movements_subset = sorted_movements[:l]
+        prev_solution = solution
+        prev_obj_val = obj_val
 
-    if len(fixed_movements) == len(movements):
-        return solution, obj_val
-    else:
-        return None, None
+    return solution, obj_val, None
 
 
 def generate_parameters(epochs_rng, neighborhood_size_rng, t0_rng, alpha_rng, neighbor_deviation_scale_rng,
@@ -141,13 +146,13 @@ def generate_parameters(epochs_rng, neighborhood_size_rng, t0_rng, alpha_rng, ne
 
 if __name__ == '__main__':
     sol_found = False
-    instance = 82
+    instance = 4
     valid_solutions = []
     objective_values = []
 
     df = pd.DataFrame(columns=['instance', 'number of movements', 'median delay', 'average delay', 'epochs', 'obj_val',
                                'neighborhood_size', 't0', 'alpha', 'neighbor_deviation_scale', 'affected_movements',
-                               'time_interval', 'vessel_time_window'])
+                               'time_interval', 'vessel_time_window', 'valid_solution'])
 
     df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_vessels', 'average_headway',
                                         'std_dev_headway', 'spread', 'average_time_between_movements',
@@ -155,7 +160,7 @@ if __name__ == '__main__':
 
     time_window = 60 * 6
     time_interval = 5
-    while instance < 101:
+    while instance < 201:
         print("=====================================")
         print("Instance: ", instance)
         # read in the data
@@ -165,7 +170,11 @@ if __name__ == '__main__':
                                                      time_interval=TIME_INTERVAL, df_tempi=df_tempi)
         movements = list(initial_solution.keys())
         sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
-        result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
+        if instance < 101:
+            result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
+        else:
+            result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 == 0]
+
         print("Objective value initial solution: ", obj_func(initial_solution))
 
         # # collect instance data
@@ -185,21 +194,24 @@ if __name__ == '__main__':
         # continue
 
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(40):
+        for _ in range(20):
             epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-                epochs_rng=[200, 200],
-                neighborhood_size_rng=[6, 6],
-                t0_rng=[40, 500],
-                alpha_rng=[0.6, 0.99],
+                epochs_rng=[100, 100],
+                neighborhood_size_rng=[4, 4],
+                t0_rng=[30, 500],
+                alpha_rng=[0.4, 0.99],
                 neighbor_deviation_scale_rng=[40, 40],
                 affected_movements_rng=[4, 4])
 
-            initial_solution, obj_val = solution_generating_procedure(result_list, 3, 5, epochs=epochs,
-                                                                      neighborhood_size=neighborhood_size,
-                                                                      t0=t0, alpha=alpha,
-                                                                      neighbor_deviation_scale=neighbor_deviation_scale,
-                                                                      affected_movements=affected_movements,
-                                                                      time_interval=5, vessel_time_window=TIME_WINDOW)
+            print("t0:", t0, "alpha:", alpha)
+            initial_solution, obj_val, prev_initial_solution = solution_generating_procedure(result_list, 3, 5,
+                                                                                             epochs=epochs,
+                                                                                             neighborhood_size=neighborhood_size,
+                                                                                             t0=t0, alpha=.49,
+                                                                                             neighbor_deviation_scale=neighbor_deviation_scale,
+                                                                                             affected_movements=affected_movements,
+                                                                                             time_interval=5,
+                                                                                             vessel_time_window=TIME_WINDOW)
 
             if initial_solution is not None:
                 # set the movement scheduled to the result of the solution generating procedure
@@ -212,16 +224,23 @@ if __name__ == '__main__':
                                          np.median([abs(m.get_delay()) for m in initial_solution.keys()]),
                                          np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
                                          epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
-                                         affected_movements, TIME_INTERVAL, TIME_WINDOW]
+                                         affected_movements, TIME_INTERVAL, TIME_WINDOW, 1]
             else:
                 print("No solution found for instance", instance)
-                df.loc[len(df.index)] = [instance, None, None, None, epochs, None, neighborhood_size, t0, alpha,
-                                         neighbor_deviation_scale, affected_movements, TIME_INTERVAL, TIME_WINDOW]
+                for m, t in prev_initial_solution.items():
+                    m.set_scheduled_time(t)
+                obj_val = obj_func(prev_initial_solution)
+
+                df.loc[len(df.index)] = [instance, len(prev_initial_solution),
+                                         np.median([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
+                                         np.mean([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
+                                         epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
+                                         affected_movements, TIME_INTERVAL, TIME_WINDOW, 0]
 
         instance += 1
 
         try:
-            df.to_excel('results/SA/output_40x100_T0xAlpha_continued_1.xlsx', index=False)
+            df.to_excel('results/SA/output_100e_200_ctd1.xlsx', index=False)
         except PermissionError:
             print("Please close the file output.xlsx and try again")
 
