@@ -36,10 +36,10 @@ def generate_good_params(regressor, instance_data, treshold, max_time):
     while pred > treshold and elapsed_time < max_time:
         # generate parameters
         epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-            epochs_rng=[200, 200],
-            neighborhood_size_rng=[6, 6],
-            t0_rng=[40, 500],
-            alpha_rng=[0.6, 0.99],
+            epochs_rng=[100, 100],
+            neighborhood_size_rng=[4, 4],
+            t0_rng=[30, 500],
+            alpha_rng=[0.4, 0.99],
             neighbor_deviation_scale_rng=[40, 40],
             affected_movements_rng=[4, 4])
 
@@ -82,8 +82,8 @@ def generate_good_params_ANN(net, scaler, instance_data, treshold, max_time, max
     while best > treshold and e < max_epochs:
         # generate parameters
         epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-            epochs_rng=[200, 200],
-            neighborhood_size_rng=[6, 6],
+            epochs_rng=[100, 100],
+            neighborhood_size_rng=[4, 4],
             t0_rng=[40, 500],
             alpha_rng=[0.6, 0.99],
             neighbor_deviation_scale_rng=[40, 40],
@@ -113,12 +113,18 @@ def generate_good_params_ANN(net, scaler, instance_data, treshold, max_time, max
 
         # elapsed_time = time.time() - t
 
+    if best < treshold:
+        print("Good parameters found")
+
+    print("epochs reached: ", e)
+
     return best_alpha, best_t0, best
 
 
 if __name__ == '__main__':
     sol_found = False
-    instance = 1
+    # unseen intances are from 151 to 200
+    instance = 51
     sol_found = 0
 
     df = pd.DataFrame(columns=['instance', 'number_of_movements_reached', 'median_delay', 'average_delay', 'epochs',
@@ -131,15 +137,15 @@ if __name__ == '__main__':
 
     # load the ANN regressor as a .pth file
     net = Net()
-    PATH = 'results/SA/models/NN_model_100e.pth'
+    PATH = 'results/SA/models/NN_model_150e.pth'
     net.load_state_dict(torch.load(PATH))
 
     # load the scaler
-    scaler = pickle.load(open('results/SA/models/scaler_100e.pkl', 'rb'))
+    scaler = pickle.load(open('results/SA/models/scaler_150e.pkl', 'rb'))
 
     while instance < 101:
         print("=====================================")
-        print("Instance: ", instance)
+        print("Instance: ", instance + 100)
 
         # read in the data
         df_movimenti, df_precedenze, df_tempi = read_data(instance)
@@ -149,6 +155,7 @@ if __name__ == '__main__':
 
         movements = list(initial_solution.keys())
         sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
+        # this are the instances above 100
         result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 == 0]
 
         print("Objective value initial solution: ", obj_func(initial_solution))
@@ -159,14 +166,14 @@ if __name__ == '__main__':
         # run the solution generating procedure 10 times for each instance and save the results
         for _ in range(1):
             epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-                epochs_rng=[200, 200],
+                epochs_rng=[100, 100],
                 neighborhood_size_rng=[6, 6],
                 t0_rng=[40, 500],
                 alpha_rng=[0.6, 0.99],
                 neighbor_deviation_scale_rng=[40, 40],
                 affected_movements_rng=[4, 4])
 
-            alpha, t0, pred = generate_good_params_ANN(net, scaler, instance_data, .82, 10, max_epochs=500)
+            alpha, t0, pred = generate_good_params_ANN(net, scaler, instance_data, .6, 10, max_epochs=9000)
 
             initial_solution, obj_val, prev_initial_solution = solution_generating_procedure(result_list, 3, 5,
                                                                                              epochs=epochs,
@@ -181,7 +188,7 @@ if __name__ == '__main__':
                 # set the movement scheduled to the result of the solution generating procedure
                 for m, t in initial_solution.items():
                     m.set_scheduled_time(t)
-                print("Solution", _, " found for instance", instance, "(", len(initial_solution), ")")
+                print("Solution", _, " found for instance", instance + 100, "(", len(initial_solution), ")")
                 obj_val = obj_func(initial_solution)
                 print("Objective value: ", obj_val)
                 avg_delay = np.mean([abs(m.get_delay()) for m in initial_solution.keys()])
@@ -189,21 +196,21 @@ if __name__ == '__main__':
                 print("Average delay: ", decimal_to_time(avg_delay))
                 print("Predicted delay: ", decimal_to_time(pred))
                 print("Median delay: ", decimal_to_time(med_delay))
-                df.loc[len(df.index)] = [instance, len(initial_solution),
+                df.loc[len(df.index)] = [instance + 100, len(initial_solution),
                                          np.median([abs(m.get_delay()) for m in initial_solution.keys()]),
                                          np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
                                          epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
                                          affected_movements, TIME_INTERVAL, TIME_WINDOW, 1, pred]
                 sol_found += 1
             else:
-                df.loc[len(df.index)] = [instance, len(prev_initial_solution),
+                df.loc[len(df.index)] = [instance + 100, len(prev_initial_solution),
                                          np.median([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
                                          np.mean([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
                                          epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
                                          affected_movements, TIME_INTERVAL, TIME_WINDOW, 0, pred]
-                print("No solution found for instance", instance)
+                print("No solution found for instance", instance +100)
 
         instance += 1
 
-    df.to_excel('results/SA/PSAP_SA-ML-TEST.xlsx', index=False)
+    df.to_excel('results/SA/ML-Results/out_151-200ex10.xlsx', index=False)
     print("solutions found: ", sol_found, "/", len(df.index))
