@@ -2,6 +2,7 @@ import pandas as pd
 import time
 import random as rd
 import numpy as np
+import math as math
 from matplotlib import pyplot as plt
 
 from Problem import Movement, time_to_decimal, decimal_to_time, validate_solution, generate_initial_solution, \
@@ -49,10 +50,9 @@ def generate_neighbor_solution_TABU(initial_solution, affected_movements, deviat
 # ============TABU SEARCH================
 def solve_with_precedence_constraints_TABU(movements: list, precedence: dict, max_time: int,
                                            tabu_list_size=3, number_of_tweaks=10,
-                                           affected_movements=4,
+                                           affected_movements=4, epochs=100,
                                            time_interval=5, vessel_time_window=60 * 6):
-    # start the timer
-    start_time = time.time()
+    e = 0
 
     # the initial solution is a dictionary with movements as keys and scheduled times as values
     initial_solution = {m: m.optimal_time for m in movements}
@@ -67,18 +67,25 @@ def solve_with_precedence_constraints_TABU(movements: list, precedence: dict, ma
     if validate_solution(initial_solution, vessel_time_window):
         return initial_solution, initial_obj_val
 
+    # bugfix, in this case the tabu list can contain all the possible movements and the algorithm will get stuck
+    possible_combinations = math.comb(len(movements), affected_movements)
+    if possible_combinations <= tabu_list_size:
+        affected_movements += 1
+
     # while the time limit is not reached
-    while time.time() - start_time < max_time and not validate_solution(initial_solution, vessel_time_window):
+    while e < epochs and not validate_solution(initial_solution, vessel_time_window):
         # generate a new solution
         r = initial_solution.copy()
         r, chosen_movements_r = generate_neighbor_solution_TABU(r, affected_movements=affected_movements,
                                                                 deviation_scale=40,
                                                                 time_interval=time_interval)
+        cnt = 0
         while chosen_movements_r in tabu_list.tabu_list:
             r = initial_solution.copy()
             r, chosen_movements_r = generate_neighbor_solution_TABU(r, affected_movements=affected_movements,
                                                                     deviation_scale=40,
                                                                     time_interval=time_interval)
+
 
         r_obj_val = obj_func(r, precedence)
         chosen_movements_r = sorted(chosen_movements_r, key=lambda x: x.optimal_time)
@@ -106,6 +113,8 @@ def solve_with_precedence_constraints_TABU(movements: list, precedence: dict, ma
             best_solution = initial_solution.copy()
             best_obj_val = initial_obj_val
 
+        e += 1
+
     if validate_solution(initial_solution, vessel_time_window, print_errors=True):
         return best_solution, initial_obj_val
     else:
@@ -114,7 +123,7 @@ def solve_with_precedence_constraints_TABU(movements: list, precedence: dict, ma
 
 def solution_generating_procedure(movements: list, l, t,
                                   tabu_list_size=3, number_of_tweaks=10,
-                                  affected_movements=4,
+                                  affected_movements=4, epochs=100,
                                   time_interval=5, vessel_time_window=60 * 6):
     # movements is a list of movements
     # sort the movements by time
@@ -134,6 +143,7 @@ def solution_generating_procedure(movements: list, l, t,
                                                                    tabu_list_size=tabu_list_size,
                                                                    number_of_tweaks=number_of_tweaks,
                                                                    affected_movements=affected_movements,
+                                                                   epochs=epochs,
 
                                                                    vessel_time_window=vessel_time_window)
 
@@ -180,12 +190,12 @@ def generate_parameters(tabu_list_size_rng, number_of_tweaks_rng, affected_movem
 
 if __name__ == '__main__':
     sol_found = False
-    instance = 1
+    instance = 5
     valid_solutions = []
     objective_values = []
 
     df = pd.DataFrame(columns=['instance', 'number of movements', 'median delay', 'average delay', 'obj_val',
-                               'tabu_list_size', 'number_of_tweaks', 'affected_movements',
+                               'tabu_list_size', 'number_of_tweaks', 'affected_movements', 'epochs',
                                'time_interval', 'vessel_time_window', 'solution_found'])
 
     df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_vessels', 'average_headway',
@@ -208,15 +218,17 @@ if __name__ == '__main__':
         print("Objective value initial solution: ", obj_func(initial_solution))
 
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(10):
+        for _ in range(20):
             # generate the parameters
-            tabu_list_size, number_of_tweaks, affected_movements = generate_parameters([2, 6], [3, 10], [2, 6])
-
+            tabu_list_size, number_of_tweaks, affected_movements = (
+                generate_parameters([1, 5], [6, 10], [2, 4]))
+            epochs = 1000
             initial_solution, obj_val, prev_initial_solution = \
                 solution_generating_procedure(result_list, 3, 5,
                                               tabu_list_size=tabu_list_size,
                                               number_of_tweaks=number_of_tweaks,
                                               affected_movements=affected_movements,
+                                              epochs=epochs,
                                               time_interval=time_interval,
                                               vessel_time_window=time_window)
 
@@ -230,7 +242,7 @@ if __name__ == '__main__':
                 df.loc[len(df.index)] = [instance, len(initial_solution),
                                          np.median([abs(m.get_delay()) for m in initial_solution.keys()]),
                                          np.mean([abs(m.get_delay()) for m in initial_solution.keys()]),
-                                         obj_val, tabu_list_size, number_of_tweaks, affected_movements,
+                                         obj_val, tabu_list_size, number_of_tweaks, affected_movements, epochs,
                                          time_interval, time_window, 1]
 
                 sol_found += 1
@@ -242,7 +254,7 @@ if __name__ == '__main__':
                 df.loc[len(df.index)] = [instance, len(prev_initial_solution),
                                          np.median([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
                                          np.mean([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
-                                         obj_val, tabu_list_size, number_of_tweaks, affected_movements,
+                                         obj_val, tabu_list_size, number_of_tweaks, affected_movements, epochs,
                                          time_interval, time_window, 0]
         instance += 1
 
