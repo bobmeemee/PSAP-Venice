@@ -56,14 +56,8 @@ def solve_with_precedence_constraints_SA(movements: list, precedence: dict, max_
                         initial_solution = new_solution.copy()
                         initial_obj_val = new_obj_val
                 except ZeroDivisionError:
-                    print("ZeroDivisionError")
-                    print("new_obj_val: ", new_obj_val)
-                    print("initial_obj_val: ", initial_obj_val)
-                    print("t0: ", t0)
-
-                if p < np.exp(-(new_obj_val - initial_obj_val) / t0):
-                    initial_solution = new_solution.copy()
-                    initial_obj_val = new_obj_val
+                    # never accept a worse solution if the temperature is 0
+                    pass
 
             if abs(new_obj_val - initial_obj_val) < 0.000001:
                 stopping_condition_counter += 1
@@ -155,7 +149,7 @@ if __name__ == '__main__':
 
     df = pd.DataFrame(columns=['instance', 'number of movements', 'median delay', 'average delay', 'epochs', 'obj_val',
                                'neighborhood_size', 't0', 'alpha', 'neighbor_deviation_scale', 'affected_movements',
-                               'time_interval', 'vessel_time_window', 'valid_solution'])
+                               'time_interval', 'vessel_time_window', 'solution_found'])
 
     df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_vessels', 'average_headway',
                                         'std_dev_headway', 'spread', 'average_time_between_movements',
