@@ -26,52 +26,7 @@ class Net(nn.Module):
         return self.fc3(x)
 
 
-def generate_good_params(regressor, instance_data, treshold, max_time):
-    pred = 1000
-    t = time.time()
-    elapsed_time = 0
-    best_alpha = 0
-    best_t0 = 0
-    best = np.inf
-    while pred > treshold and elapsed_time < max_time:
-        # generate parameters
-        epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-            epochs_rng=[100, 100],
-            neighborhood_size_rng=[4, 4],
-            t0_rng=[30, 500],
-            alpha_rng=[0.4, 0.99],
-            neighbor_deviation_scale_rng=[40, 40],
-            affected_movements_rng=[4, 4])
-
-        # concatenate the parameters to the instance data
-        instance_data['t0'] = t0
-        instance_data['alpha'] = alpha
-
-        # dict to list in order to be able to predict
-        feature_cols = ['t0', 'alpha',
-                        'number_of_movements', 'number_of_vessels', 'average_headway', 'std_dev_headway', 'spread',
-                        'average_time_between_movements', 'average_travel_time']
-        features = []
-        for col in feature_cols:
-            features.append(instance_data[col])
-
-        predictions = regressor.predict([features])
-        pred = predictions[0]
-        print("Predicted delay: ", decimal_to_time(pred))
-        elapsed_time = time.time() - t
-        if pred < best:
-            best = pred
-            best_t0 = t0
-            best_alpha = alpha
-
-    if pred > treshold:
-        return None, None, None
-
-    return best_alpha, best_t0, best
-
-
 def generate_good_params_ANN(net, scaler, instance_data, treshold, max_time, max_epochs=200):
-    pred = np.inf
     best = np.inf
     # t = time.time()
     # elapsed_time = 0
@@ -84,8 +39,8 @@ def generate_good_params_ANN(net, scaler, instance_data, treshold, max_time, max
         epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
             epochs_rng=[100, 100],
             neighborhood_size_rng=[4, 4],
-            t0_rng=[40, 500],
-            alpha_rng=[0.6, 0.99],
+            t0_rng=[1, 10000],
+            alpha_rng=[0.01, 0.99],
             neighbor_deviation_scale_rng=[40, 40],
             affected_movements_rng=[4, 4])
 
@@ -124,7 +79,7 @@ def generate_good_params_ANN(net, scaler, instance_data, treshold, max_time, max
 if __name__ == '__main__':
     sol_found = False
     # unseen intances are from 151 to 200
-    instance = 51
+    instance = 151
     sol_found = 0
 
     df = pd.DataFrame(columns=['instance', 'number_of_movements_reached', 'median_delay', 'average_delay', 'epochs',
@@ -164,16 +119,14 @@ if __name__ == '__main__':
         print(instance_data)
 
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(1):
-            epochs, neighborhood_size, t0, alpha, neighbor_deviation_scale, affected_movements = generate_parameters(
-                epochs_rng=[100, 100],
-                neighborhood_size_rng=[6, 6],
-                t0_rng=[40, 500],
-                alpha_rng=[0.6, 0.99],
-                neighbor_deviation_scale_rng=[40, 40],
-                affected_movements_rng=[4, 4])
+        for _ in range(10):
 
-            alpha, t0, pred = generate_good_params_ANN(net, scaler, instance_data, .6, 10, max_epochs=9000)
+            epochs = 100
+            neighborhood_size = 4
+            neighbor_deviation_scale = 40
+            affected_movements = 4
+
+            alpha, t0, pred = generate_good_params_ANN(net, scaler, instance_data, .6, 10, max_epochs=30000)
 
             initial_solution, obj_val, prev_initial_solution = solution_generating_procedure(result_list, 3, 5,
                                                                                              epochs=epochs,
@@ -203,14 +156,18 @@ if __name__ == '__main__':
                                          affected_movements, TIME_INTERVAL, TIME_WINDOW, 1, pred]
                 sol_found += 1
             else:
+                for m, t in prev_initial_solution.items():
+                    m.set_scheduled_time(t)
+                obj_val = obj_func(prev_initial_solution)
+
                 df.loc[len(df.index)] = [instance + 100, len(prev_initial_solution),
                                          np.median([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
                                          np.mean([abs(m.get_delay()) for m in prev_initial_solution.keys()]),
                                          epochs, obj_val, neighborhood_size, t0, alpha, neighbor_deviation_scale,
                                          affected_movements, TIME_INTERVAL, TIME_WINDOW, 0, pred]
-                print("No solution found for instance", instance +100)
+                print("No solution found for instance", instance + 100)
 
         instance += 1
 
-    df.to_excel('results/SA/ML-Results/out_151-200ex10.xlsx', index=False)
-    print("solutions found: ", sol_found, "/", len(df.index))
+        df.to_excel('results/SA/ML-Results/out_151-200ex10-Bavo.xlsx', index=False)
+        print("solutions found: ", sol_found, "/", len(df.index))
