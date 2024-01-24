@@ -1,0 +1,8 @@
+pandas~=2.1.4
+numpy~=1.26.2
+matplotlib~=3.8.0
+scikit-learning~=0.24.2
+pytorch~=1.10.0
+ipython~=7.31.1
+jupyter~=1.0.0
+pickle~=0.7.5

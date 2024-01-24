@@ -2,10 +2,9 @@ import pandas as pd
 import time
 import random as rd
 import numpy as np
-from matplotlib import pyplot as plt
 
-from Problem import Movement, time_to_decimal, decimal_to_time, validate_solution, generate_initial_solution, \
-    read_data, generate_neighbor_solution, obj_func, validate_precedence_constraints, earliest, collect_instance_data
+from PSAP.Problem import validate_solution, generate_initial_solution, \
+    read_data, generate_neighbor_solution, obj_func, earliest
 
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6

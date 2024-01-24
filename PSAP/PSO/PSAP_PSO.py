@@ -4,7 +4,7 @@ import random as rd
 import numpy as np
 from matplotlib import pyplot as plt
 
-from Problem import validate_solution, generate_initial_solution, read_data, earliest
+from PSAP.Problem import validate_solution, generate_initial_solution, read_data, earliest
 
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6

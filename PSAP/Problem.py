@@ -3,6 +3,7 @@ import random as rd
 
 import numpy as np
 import pandas as pd
+import os
 
 
 class Movement:
@@ -17,7 +18,6 @@ class Movement:
 
         self.travel_time = travel_time
         self.berth_times = dict()
-
 
     def add_headway(self, id_number, time):
         self.headway[id_number] = time
@@ -43,12 +43,117 @@ class Movement:
             + hw
 
 
+# superclass for the solvers
+class Solver:
+    def __init__(self, max_time, time_interval, vessel_time_window):
+        self.max_time = max_time
+        self.time_interval = time_interval
+        self.vessel_time_window = vessel_time_window
+
+    def set_max_time(self, max_time):
+        self.max_time = max_time
+
+    def set_time_interval(self, time_interval):
+        self.time_interval = time_interval
+
+    def set_vessel_time_window(self, vessel_time_window):
+        self.vessel_time_window = vessel_time_window
+
+    def solve(self, problem_subset, precedence=None):
+        pass
+
+    def __str__(self):
+        return "Solver"
+
+
+class SolutionGenerator:
+    def __init__(self, movements, solver, l=3, t=5, time_interval=5*60, vessel_time_window=5):
+        self.movements = movements
+        self.l = l
+        self.t = t
+        self.time_interval = time_interval
+        self.vessel_time_window = vessel_time_window
+        self.solver = solver
+
+        # set initial values for the solver
+        self.solver.set_max_time(t)
+        self.solver.set_time_interval(time_interval)
+        self.solver.set_vessel_time_window(vessel_time_window)
+
+    def set_movements(self, movements):
+        self.movements = movements
+
+    def generate_solution(self):
+        # movements is a list of movements
+        # sort the movements by time
+        print(self.solver)
+        sorted_movements = sorted(self.movements, key=lambda x: x.optimal_time)
+
+        # select the first l movements
+        movements_subset = sorted_movements[:self.l]
+
+        fixed_movements = []
+        precedence = {}
+        while len(fixed_movements) != len(self.movements):
+            # unite the new subset with the fixed movements
+            problem_subset = fixed_movements + movements_subset
+            # solve the problem with the new subset and the precedence constraints
+            solution, obj_val = self.solver.solve(problem_subset, precedence)
+
+            # if no solution was found, return None
+            if solution is None:
+                print("No solution found while using precedence constraints")
+                print("reached: ", len(fixed_movements), "/", len(self.movements))
+                try:
+                    return None, prev_obj_val, prev_solution
+                except UnboundLocalError:
+                    # return infinite
+                    return None, 10 ** 9, {}
+
+            else:
+                # get the earliest movement in the solution that is not in the fixed movements
+                first_movement, first_movement_time = earliest(solution, movements_subset)
+                # append the precedence constraints {first_movement: {m_i: time_difference_i}}
+                first_movement_precedences = {}
+                for m, time in solution.items():
+                    if m != first_movement:
+                        difference = time - first_movement_time
+                        first_movement_precedences[m] = difference
+                precedence[first_movement] = first_movement_precedences
+
+                # append the movement to the fixed movements
+                fixed_movements.append(first_movement)
+
+            # remove the first movement from the candidates for the subset and select the next l earliest movements
+            sorted_movements.remove(first_movement)
+            movements_subset = sorted_movements[:self.l]
+            prev_solution = solution
+            prev_obj_val = obj_val
+
+        return solution, obj_val, None
+
+
+def prepare_movements(instance, time_interval=5):
+    # read in the data
+    df_movimenti, df_precedenze, df_tempi = read_data(instance)
+    # generate the initial solution
+    initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
+                                                 time_interval=time_interval, df_tempi=df_tempi)
+    movements = list(initial_solution.keys())
+    sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
+    if instance < 100:
+        result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
+    else:
+        result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 == 0]
+    return result_list
+
+
 def time_to_decimal(time):
-    if type(time) == datetime.time:
+    if type(time) is datetime.time:
         # if the time is a datetime.time object, convert it to decimal
         return time.hour + time.minute / 60
 
-    if type(time) == datetime.datetime:
+    if type(time) is datetime.datetime:
         # if the time is a datetime.datetime object, convert it to decimal
         return time.hour + time.minute / 60 + time.second / 3600 + 24
 
@@ -64,10 +169,18 @@ def decimal_to_time(decimal):
 
 
 def read_data(instance):
+    # content root
+    project_root = os.path.dirname(os.path.dirname(__file__))
+
+    # path to the data file
+    if instance > 100:
+        instance -= 100
+    data_file_path = os.path.join(project_root, 'data/Instance_' + str(instance) + '.xlsx')
+
     # read in the data
-    df_movimenti = pd.read_excel(str('data/Instance_' + str(instance) + '.xlsx'), header=0, sheet_name='movimenti')
-    df_precedenze = pd.read_excel(str('data/Instance_' + str(instance) + '.xlsx'), header=0, sheet_name='Precedenze')
-    df_tempi = pd.read_excel(str('data/Instance_' + str(instance) + '.xlsx'), header=0, sheet_name='Tempi')
+    df_movimenti = pd.read_excel(data_file_path, header=0, sheet_name='movimenti')
+    df_precedenze = pd.read_excel(data_file_path, header=0, sheet_name='Precedenze')
+    df_tempi = pd.read_excel(data_file_path, header=0, sheet_name='Tempi')
     return df_movimenti, df_precedenze, df_tempi
 
 
@@ -123,8 +236,6 @@ def generate_initial_solution(df, df_headway, deviation_scale=1, time_interval=5
                 if k == len(df_tempi) - 1:
                     break
                 k += 1
-
-
 
         init_sol[m] = scheduled_time
     return init_sol
@@ -311,9 +422,7 @@ def collect_instance_data(movements):
         average_travel_time += m.travel_time
     average_travel_time = average_travel_time / number_of_movements
 
-
     # berth congestion
-
 
     instance_data['number_of_movements'] = number_of_movements
     instance_data['number_of_headways'] = number_of_headways
@@ -325,3 +434,49 @@ def collect_instance_data(movements):
     instance_data['average_travel_time'] = average_travel_time
 
     return instance_data
+
+
+def generate_instance_data():
+    TIME_INTERVAL = 5
+    TIME_WINDOW = 60 * 6
+
+    df_instance = pd.DataFrame(columns=['instance', 'number_of_movements', 'number_of_headways',
+                                        'number_of_vessels', 'average_headway',
+                                        'std_dev_headway', 'spread', 'average_time_between_movements',
+                                        'average_travel_time'])
+
+    # avg travel distance?
+    # number of berths in same interval?
+
+    for instance in range(1, 101):
+        print("Solving instance " + str(instance))
+
+        df_movimenti, df_precedenze, df_tempi = read_data(instance)
+        # generate the initial solution
+        initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
+                                                     time_interval=TIME_INTERVAL, df_tempi=df_tempi)
+
+        movements = list(initial_solution.keys())
+        sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
+
+        for idx in range(2):
+            if idx == 0:
+                result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 != 0]
+                plus = 0
+            else:
+                result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 == 0]
+                plus = 100
+
+            instance_data = collect_instance_data(result_list)
+            df_instance.loc[len(df_instance.index)] = [instance + plus, instance_data['number_of_movements'],
+                                                       instance_data['number_of_headways'],
+                                                       instance_data['number_of_vessels'],
+                                                       instance_data['average_headway'],
+                                                       instance_data['std_dev_headway'], instance_data['spread'],
+                                                       instance_data['average_time_between_movements'],
+                                                       instance_data['average_travel_time']]
+
+            try:
+                df_instance.to_excel('results/instance200.xlsx', index=False)
+            except PermissionError:
+                print("Please close the file instance_data.xlsx and try again")

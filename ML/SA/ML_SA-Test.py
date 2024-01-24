@@ -1,11 +1,10 @@
-import time
 import pickle
 
 import numpy as np
 import pandas as pd
-from Problem import read_data, obj_func, collect_instance_data, decimal_to_time
-from PSAP_SA import solution_generating_procedure, generate_parameters, TIME_INTERVAL, TIME_WINDOW, \
-    generate_initial_solution
+from PSAP.Problem import obj_func, collect_instance_data, decimal_to_time, SolutionGenerator, \
+    prepare_movements
+from PSAP.PSAP_SA import generate_parameters, SimulatedAnnealing
 
 import torch
 import torch.nn as nn
@@ -77,7 +76,6 @@ def generate_good_params_ANN(net, scaler, instance_data, treshold, max_time, max
 
 
 if __name__ == '__main__':
-    sol_found = False
     # unseen intances are from 151 to 200
     instance = 151
     sol_found = 0
@@ -92,34 +90,38 @@ if __name__ == '__main__':
 
     # load the ANN regressor as a .pth file
     net = Net()
-    PATH = 'results/SA/models/NN_model_150e.pth'
+    PATH = '../../results/SA/models/NN_model_150e.pth'
     net.load_state_dict(torch.load(PATH))
 
     # load the scaler
-    scaler = pickle.load(open('results/SA/models/scaler_150e.pkl', 'rb'))
+    scaler = pickle.load(open('../../results/SA/models/scaler_150e.pkl', 'rb'))
 
-    while instance < 101:
+    # initialize the solver
+    solver = SimulatedAnnealing(max_time=60, epochs=100,
+                                time_interval=TIME_INTERVAL, vessel_time_window=TIME_WINDOW,
+                                neighborhood_size=4, t0=1000, alpha=0.5, neighbor_deviation_scale=40,
+                                affected_movements=4)
+
+    # initialize the solution generator
+    solutionGenerator = SolutionGenerator(movements=[], l=3, t=5, solver=solver, time_interval=5,
+                                          vessel_time_window=60 * 6)
+
+    while instance < 201:
         print("=====================================")
-        print("Instance: ", instance + 100)
+        print("Instance: ", instance)
 
         # read in the data
-        df_movimenti, df_precedenze, df_tempi = read_data(instance)
-        # generate the initial solution
-        initial_solution = generate_initial_solution(df=df_movimenti, df_headway=df_precedenze, deviation_scale=1,
-                                                     time_interval=TIME_INTERVAL, df_tempi=df_tempi)
+        result_list = prepare_movements(instance)
+        result_dict = {m: m.optimal_time for m in result_list}
+        lengthMaxMov = len(result_list)
 
-        movements = list(initial_solution.keys())
-        sorted_movements = sorted(movements, key=lambda x: x.optimal_time)
-        # this are the instances above 100
-        result_list = [elem for index, elem in enumerate(sorted_movements, 1) if index % 2 == 0]
-
-        print("Objective value initial solution: ", obj_func(initial_solution))
+        print("Objective value initial solution: ", obj_func(result_dict))
 
         instance_data = collect_instance_data(result_list)
         print(instance_data)
 
         # run the solution generating procedure 10 times for each instance and save the results
-        for _ in range(10):
+        for _ in range(1):
 
             epochs = 100
             neighborhood_size = 4
@@ -128,14 +130,11 @@ if __name__ == '__main__':
 
             alpha, t0, pred = generate_good_params_ANN(net, scaler, instance_data, .6, 10, max_epochs=30000)
 
-            initial_solution, obj_val, prev_initial_solution = solution_generating_procedure(result_list, 3, 5,
-                                                                                             epochs=epochs,
-                                                                                             neighborhood_size=neighborhood_size,
-                                                                                             t0=t0, alpha=alpha,
-                                                                                             neighbor_deviation_scale=neighbor_deviation_scale,
-                                                                                             affected_movements=affected_movements,
-                                                                                             time_interval=5,
-                                                                                             vessel_time_window=TIME_WINDOW)
+            solver.set_t0(t0)
+            solver.set_alpha(alpha)
+
+            solutionGenerator.set_movements(result_list.copy())
+            initial_solution, obj_val, prev_initial_solution = solutionGenerator.generate_solution()
 
             if initial_solution is not None:
                 # set the movement scheduled to the result of the solution generating procedure

@@ -1,5 +1,5 @@
 import pandas as pd
-from Problem import collect_instance_data, read_data, generate_initial_solution
+from PSAP.Problem import collect_instance_data, read_data, generate_initial_solution
 
 TIME_INTERVAL = 5
 TIME_WINDOW = 60 * 6
