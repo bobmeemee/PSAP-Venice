@@ -67,7 +67,7 @@ class Solver:
 
 
 class SolutionGenerator:
-    def __init__(self, movements, solver, l=3, t=5, time_interval=5*60, vessel_time_window=5):
+    def __init__(self, movements, solver, l=3, t=5, time_interval=5, vessel_time_window=60*5):
         self.movements = movements
         self.l = l
         self.t = t

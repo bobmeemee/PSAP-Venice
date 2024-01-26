@@ -10,7 +10,6 @@ if __name__ == '__main__':
                         tabu_list_size=10, number_of_tweaks=10, affected_movements=10)
 
     solutionGenerator = SolutionGenerator(movements, solver)
-
     initial_solution, obj_val, prev_initial_solution = solutionGenerator.generate_solution()
 
     print(initial_solution)

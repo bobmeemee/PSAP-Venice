@@ -5,8 +5,7 @@ import time
 
 from matplotlib import pyplot as plt
 
-from PSAP.Problem import read_data, earliest, validate_solution, \
-    generate_initial_solution, Solver, prepare_movements, SolutionGenerator
+from PSAP.Problem import validate_solution, Solver, prepare_movements, SolutionGenerator
 
 
 # ============EVOLUTIONARY ALGORITHM================
